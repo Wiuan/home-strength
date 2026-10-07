@@ -94,44 +94,43 @@ fun ActiveWorkoutScreen(
                     .padding(padding)
                     .padding(24.dp)
             ) { Text("加载中…") }
-            return@Scaffold
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            Text(
-                text = "今天状态：${modeLabel(data.session.trainingMode)}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            data.logs.sortedBy { it.log.sortOrder }.forEach { log ->
-                ExerciseBlock(
-                    logWithSets = log,
-                    previous = previous[log.exercise.id],
-                    suggestion = suggestions[log.exercise.id],
-                    onOpenDetail = { onOpenExercise(log.exercise.id) },
-                    onValueChange = { setId, value, unit, filledSet ->
-                        viewModel.updateSetValue(setId, value, unit)
-                        if (filledSet) showRestTimer = true
-                    },
-                    onPickResistance = { pickingLogId = log.log.id },
-                    onApplySuggestedResistance = {
-                        viewModel.applySuggestedResistance(log.log.id, log.exercise.id)
-                    },
-                    onSkip = { viewModel.skipExercise(log.log.id) },
-                    onUnskip = { viewModel.unskipExercise(log.log.id) }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Text(
+                    text = "今天状态：${modeLabel(data.session.trainingMode)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                HorizontalDivider()
-            }
 
-            Spacer(modifier = Modifier.height(72.dp))
+                data.logs.sortedBy { it.log.sortOrder }.forEach { log ->
+                    ExerciseBlock(
+                        logWithSets = log,
+                        previous = previous[log.exercise.id],
+                        suggestion = suggestions[log.exercise.id],
+                        onOpenDetail = { onOpenExercise(log.exercise.id) },
+                        onValueChange = { setId, value, unit, filledSet ->
+                            viewModel.updateSetValue(setId, value, unit)
+                            if (filledSet) showRestTimer = true
+                        },
+                        onPickResistance = { pickingLogId = log.log.id },
+                        onApplySuggestedResistance = {
+                            viewModel.applySuggestedResistance(log.log.id, log.exercise.id)
+                        },
+                        onSkip = { viewModel.skipExercise(log.log.id) },
+                        onUnskip = { viewModel.unskipExercise(log.log.id) }
+                    )
+                    HorizontalDivider()
+                }
+
+                Spacer(modifier = Modifier.height(72.dp))
+            }
         }
     }
 
@@ -226,16 +225,25 @@ private fun ExerciseBlock(
             }
         }
 
-        if (previous != null) {
-            Text("上次  ${previous.summaryLabel}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        if (suggestion != null) {
-            SuggestionBlock(
-                suggestion = suggestion,
-                currentResistance = currentResistance,
-                onApplyResistance = onApplySuggestedResistance
-            )
+        when {
+            suggestion?.type == ProgressionType.FIRST_TIME -> {
+                Text(
+                    "首次 · 目标 ${exercise.targetMin}–${exercise.targetMax} $unitLabel",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            else -> {
+                if (previous != null) {
+                    Text("上次  ${previous.summaryLabel}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (suggestion != null) {
+                    SuggestionBlock(
+                        suggestion = suggestion,
+                        currentResistance = currentResistance,
+                        onApplyResistance = onApplySuggestedResistance
+                    )
+                }
+            }
         }
 
         OutlinedButton(onClick = onPickResistance, modifier = Modifier.fillMaxWidth()) {
@@ -244,27 +252,39 @@ private fun ExerciseBlock(
 
         if (skipped) {
             Text("已跳过", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return
-        }
+        } else {
+            val sets = logWithSets.sets.sortedWith(
+                compareBy<SetWithBands> { it.set.setNumber }
+                    .thenBy { it.set.side?.ordinal ?: -1 }
+            )
 
-        val sets = logWithSets.sets.sortedWith(
-            compareBy<SetWithBands> { it.set.setNumber }
-                .thenBy { it.set.side?.ordinal ?: -1 }
-        )
-
-        if (exercise.isUnilateral) {
-            val byNumber = sets.groupBy { it.set.setNumber }
-            byNumber.keys.sorted().forEach { setNumber ->
-                val sides = byNumber[setNumber].orEmpty()
-                Text("第 $setNumber 组", style = MaterialTheme.typography.titleMedium)
-                sides.forEach { sw ->
-                    val sideLabel = when (sw.set.side) {
-                        SetSide.LEFT -> "左侧"
-                        SetSide.RIGHT -> "右侧"
-                        null -> ""
+            if (exercise.isUnilateral) {
+                val byNumber = sets.groupBy { it.set.setNumber }
+                byNumber.keys.sorted().forEach { setNumber ->
+                    val sides = byNumber[setNumber].orEmpty()
+                    Text("第 $setNumber 组", style = MaterialTheme.typography.titleMedium)
+                    sides.forEach { sw ->
+                        val sideLabel = when (sw.set.side) {
+                            SetSide.LEFT -> "左侧"
+                            SetSide.RIGHT -> "右侧"
+                            null -> ""
+                        }
+                        SetRow(
+                            label = sideLabel,
+                            value = valueOf(sw, unit),
+                            unit = unit,
+                            onChange = { newValue ->
+                                val old = valueOf(sw, unit)
+                                val filled = old == null && newValue != null && newValue > 0
+                                onValueChange(sw.set.id, newValue, unit, filled)
+                            }
+                        )
                     }
+                }
+            } else {
+                sets.forEach { sw ->
                     SetRow(
-                        label = sideLabel,
+                        label = "第 ${sw.set.setNumber} 组",
                         value = valueOf(sw, unit),
                         unit = unit,
                         onChange = { newValue ->
@@ -274,19 +294,6 @@ private fun ExerciseBlock(
                         }
                     )
                 }
-            }
-        } else {
-            sets.forEach { sw ->
-                SetRow(
-                    label = "第 ${sw.set.setNumber} 组",
-                    value = valueOf(sw, unit),
-                    unit = unit,
-                    onChange = { newValue ->
-                        val old = valueOf(sw, unit)
-                        val filled = old == null && newValue != null && newValue > 0
-                        onValueChange(sw.set.id, newValue, unit, filled)
-                    }
-                )
             }
         }
     }

@@ -20,4 +20,9 @@ sealed class Routes(val route: String) {
     data object ExerciseDetail : Routes("exercise/{exerciseId}") {
         fun create(exerciseId: Long) = "exercise/$exerciseId"
     }
+    data object LightPractice : Routes("practice/{track}") {
+        fun create(track: String) = "practice/$track"
+    }
+    data object Welfare : Routes("welfare")
+    data object Profile : Routes("profile")
 }

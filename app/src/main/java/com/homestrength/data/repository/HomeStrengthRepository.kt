@@ -32,7 +32,8 @@ class HomeStrengthRepository(
     private val exerciseDao: ExerciseDao,
     private val bandDao: BandDao,
     private val settingsDao: AppSettingsDao,
-    private val sessionDao: WorkoutSessionDao
+    private val sessionDao: WorkoutSessionDao,
+    private val traineeRepository: TraineeRepository? = null
 ) {
     fun observeSettings(): Flow<AppSettingsEntity> =
         settingsDao.observe().map { it ?: AppSettingsEntity() }
@@ -45,10 +46,10 @@ class HomeStrengthRepository(
     }
 
     fun observeExercises(type: WorkoutType): Flow<List<ExerciseEntity>> =
-        exerciseDao.observeByWorkoutType(type)
+        exerciseDao.observeByWorkoutType(type).map { it.distinctByWorkoutSlot() }
 
     suspend fun getExercises(type: WorkoutType): List<ExerciseEntity> =
-        exerciseDao.getByWorkoutType(type)
+        exerciseDao.getByWorkoutType(type).distinctByWorkoutSlot()
 
     suspend fun getExercise(id: Long): ExerciseEntity? = exerciseDao.getById(id)
 
@@ -91,6 +92,12 @@ class HomeStrengthRepository(
         sessionDao.observeAllSessions().map { list -> list.filter { it.session.completed } }
 
     fun observeLastCompleted(): Flow<SessionWithLogs?> = sessionDao.observeLastCompleted()
+
+    fun observeRecentCompleted(limit: Int = 8): Flow<List<SessionWithLogs>> =
+        sessionDao.observeRecentCompleted(limit)
+
+    suspend fun getCompletedSessionsInRange(startMillis: Long, endMillis: Long) =
+        sessionDao.getCompletedInRange(startMillis, endMillis)
 
     fun observeIncomplete(): Flow<SessionWithLogs?> = sessionDao.observeIncomplete()
 
@@ -285,6 +292,7 @@ class HomeStrengthRepository(
         settingsDao.upsert(
             settings.copy(nextWorkoutType = WorkoutPlanner.nextType(withLogs.session.workoutType))
         )
+        traineeRepository?.awardStrengthCompletion()
         return sessionDao.getSessionWithLogs(sessionId)
     }
 
@@ -301,4 +309,10 @@ class HomeStrengthRepository(
         val session = sessionDao.getSessionWithLogs(sessionId) ?: return
         sessionDao.updateSession(session.session.copy(updatedAt = System.currentTimeMillis()))
     }
+
+    /** Keeps one row per plan slot when legacy DB still has duplicate exercise seeds. */
+    private fun List<ExerciseEntity>.distinctByWorkoutSlot(): List<ExerciseEntity> =
+        groupBy { it.sortOrder }
+            .map { (_, group) -> group.minBy { it.id } }
+            .sortedBy { it.sortOrder }
 }

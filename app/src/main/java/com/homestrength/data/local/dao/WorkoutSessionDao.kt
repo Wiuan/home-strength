@@ -71,6 +71,10 @@ interface WorkoutSessionDao {
     fun observeLastCompleted(): Flow<SessionWithLogs?>
 
     @Transaction
+    @Query("SELECT * FROM workout_sessions WHERE completed = 1 ORDER BY dateTime DESC LIMIT :limit")
+    fun observeRecentCompleted(limit: Int): Flow<List<SessionWithLogs>>
+
+    @Transaction
     @Query("SELECT * FROM workout_sessions WHERE completed = 0 ORDER BY updatedAt DESC LIMIT 1")
     fun observeIncomplete(): Flow<SessionWithLogs?>
 
@@ -87,6 +91,29 @@ interface WorkoutSessionDao {
     )
     fun observeCompletedCountInRange(weekStartMillis: Long, weekEndMillis: Long): Flow<Int>
 
+    @Query(
+        """
+        SELECT * FROM workout_sessions
+        WHERE completed = 1
+          AND dateTime >= :startMillis
+          AND dateTime < :endMillis
+        ORDER BY dateTime ASC
+        """
+    )
+    suspend fun getCompletedInRange(startMillis: Long, endMillis: Long): List<WorkoutSessionEntity>
+
     @Query("SELECT * FROM workout_sessions WHERE completed = 1 ORDER BY dateTime ASC")
     suspend fun getAllCompletedOrdered(): List<WorkoutSessionEntity>
+
+    @Query("SELECT id FROM workout_sessions")
+    suspend fun getAllSessionIds(): List<Long>
+
+    @Query("SELECT * FROM exercise_logs WHERE sessionId = :sessionId ORDER BY sortOrder ASC, id ASC")
+    suspend fun getLogsForSession(sessionId: Long): List<ExerciseLogEntity>
+
+    @Query("SELECT * FROM exercise_sets WHERE exerciseLogId = :logId")
+    suspend fun getSetsForLog(logId: Long): List<ExerciseSetEntity>
+
+    @Query("DELETE FROM exercise_logs WHERE id = :logId")
+    suspend fun deleteLog(logId: Long)
 }

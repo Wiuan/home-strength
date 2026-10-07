@@ -1,21 +1,25 @@
 package com.homestrength.ui.workout
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,13 +27,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homestrength.data.local.entity.TrainingMode
+import com.homestrength.ui.components.GoldWash
+import com.homestrength.ui.components.HeroTitle
+import com.homestrength.ui.components.SoftCard
 import com.homestrength.ui.theme.StatusColors
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModeSelectScreen(
     viewModel: ModeSelectViewModel,
@@ -45,75 +52,71 @@ fun ModeSelectScreen(
         state.error?.let(onError)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("今天状态") },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("返回") }
-                }
-            )
+    fun requestStart(mode: TrainingMode) {
+        if (state.hasIncomplete) {
+            pendingMode = mode
+        } else {
+            viewModel.start(mode, onStarted)
         }
-    ) { padding ->
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        GoldWash(Modifier.fillMaxWidth().height(180.dp))
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                "全身 ${state.nextWorkoutType.name}",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                "选择今天的状态后开始。保持习惯比完美更重要。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            TextButton(onClick = onBack) { Text("返回") }
+            HeroTitle(
+                leading = "按今天的状态",
+                accent = "安排有余量",
+                subtitle = "全身 ${state.nextWorkoutType.name} · 保持习惯比完美更重要"
             )
 
             if (state.hasIncomplete) {
-                Text(
-                    "有未完成训练。开始新训练将丢弃未完成进度。",
-                    color = StatusColors.caution
-                )
-                state.incompleteSessionId?.let { id ->
-                    OutlinedButton(
-                        onClick = { onContinueIncomplete(id) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("继续未完成训练")
+                SoftCard {
+                    Text(
+                        "有未完成训练。开始新训练将丢弃未完成进度。",
+                        color = StatusColors.caution
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    state.incompleteSessionId?.let { id ->
+                        Button(
+                            onClick = { onContinueIncomplete(id) },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) { Text("继续未完成训练") }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            fun requestStart(mode: TrainingMode) {
-                if (state.hasIncomplete) {
-                    pendingMode = mode
-                } else {
-                    viewModel.start(mode, onStarted)
-                }
-            }
-
-            ModeButton(
+            ModeCard(
                 title = "正常",
                 subtitle = "完整动作 × 默认组数",
                 enabled = !state.starting,
+                emphasized = true,
                 onClick = { requestStart(TrainingMode.NORMAL) }
             )
-            ModeButton(
+            ModeCard(
                 title = "有点累",
                 subtitle = "3 个主要动作 × 默认组数",
                 enabled = !state.starting,
                 onClick = { requestStart(TrainingMode.TIRED) }
             )
-            ModeButton(
+            ModeCard(
                 title = "极度疲惫",
                 subtitle = "Push / Pull / Squat 各 1 组",
                 enabled = !state.starting,
-                outlined = true,
                 onClick = { requestStart(TrainingMode.EXHAUSTED) }
             )
 
@@ -144,28 +147,52 @@ fun ModeSelectScreen(
 }
 
 @Composable
-private fun ModeButton(
+private fun ModeCard(
     title: String,
     subtitle: String,
     enabled: Boolean,
     onClick: () -> Unit,
-    outlined: Boolean = false
+    emphasized: Boolean = false
 ) {
-    val modifier = Modifier
-        .fillMaxWidth()
-        .height(72.dp)
-    when {
-        outlined -> OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier) {
-            Column {
-                Text(title, style = MaterialTheme.typography.titleLarge)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-        else -> Button(onClick = onClick, enabled = enabled, modifier = modifier) {
-            Column {
-                Text(title, style = MaterialTheme.typography.titleLarge)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium)
-            }
+    val shape = RoundedCornerShape(20.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                if (emphasized) MaterialTheme.colorScheme.onBackground
+                else MaterialTheme.colorScheme.surface
+            )
+            .border(
+                1.dp,
+                if (emphasized) MaterialTheme.colorScheme.onBackground
+                else MaterialTheme.colorScheme.outline,
+                shape
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 18.dp)
+    ) {
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = if (emphasized) {
+                    MaterialTheme.colorScheme.background
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (emphasized) {
+                    MaterialTheme.colorScheme.background.copy(alpha = 0.8f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
         }
     }
 }

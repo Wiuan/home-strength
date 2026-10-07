@@ -1,12 +1,10 @@
 package com.homestrength.data.local.dao
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import com.homestrength.data.local.entity.ExerciseEntity
 import com.homestrength.data.local.entity.WorkoutType
 import com.homestrength.data.local.relation.ExerciseLogWithSets
@@ -31,6 +29,15 @@ interface ExerciseDao {
 
     @Query("SELECT COUNT(*) FROM exercises")
     suspend fun count(): Int
+
+    @Query("SELECT * FROM exercises ORDER BY workoutType, sortOrder, id")
+    suspend fun getAllOrdered(): List<ExerciseEntity>
+
+    @Query("UPDATE exercise_logs SET exerciseId = :toExerciseId WHERE exerciseId = :fromExerciseId")
+    suspend fun reassignLogs(fromExerciseId: Long, toExerciseId: Long)
+
+    @Query("DELETE FROM exercises WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Transaction
     @Query(

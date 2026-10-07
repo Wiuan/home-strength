@@ -12,86 +12,108 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-private val GreenPrimary = Color(0xFF2E7D32)
-private val GreenDark = Color(0xFF1B5E20)
-private val CautionYellow = Color(0xFFF9A825)
-private val FatigueRed = Color(0xFFC62828)
+/** Cream / navy / gold — closer to a gentle “trainee file” look than gym green. */
+object Palette {
+    val Paper = Color(0xFFF6F1E8)
+    val PaperDeep = Color(0xFFEDE4D4)
+    val Card = Color(0xFFFFFBF6)
+    val Ink = Color(0xFF1B2A41)
+    val InkSoft = Color(0xFF5C6B7A)
+    val Gold = Color(0xFFC4A35A)
+    val GoldDeep = Color(0xFFA4843A)
+    val GoldSoft = Color(0xFFF3E6C8)
+    val Line = Color(0xFFE4D8C4)
+    val Caution = Color(0xFFC9A227)
+    val Fatigue = Color(0xFFB85C4A)
+
+    val NightBg = Color(0xFF16130F)
+    val NightCard = Color(0xFF221E18)
+    val NightInk = Color(0xFFF3EDE3)
+    val NightInkSoft = Color(0xFFC4B8A6)
+    val NightGold = Color(0xFFD4B56A)
+}
 
 private val LightColors = lightColorScheme(
-    primary = GreenPrimary,
+    primary = Palette.GoldDeep,
     onPrimary = Color.White,
-    secondary = CautionYellow,
-    tertiary = FatigueRed,
-    background = Color(0xFFF7F8F7),
-    surface = Color.White,
-    onBackground = Color(0xFF121412),
-    onSurface = Color(0xFF121412),
-    surfaceVariant = Color(0xFFE8EDE8),
-    onSurfaceVariant = Color(0xFF4A554A)
+    secondary = Palette.Gold,
+    tertiary = Palette.Fatigue,
+    background = Palette.Paper,
+    surface = Palette.Card,
+    onBackground = Palette.Ink,
+    onSurface = Palette.Ink,
+    surfaceVariant = Palette.PaperDeep,
+    onSurfaceVariant = Palette.InkSoft,
+    outline = Palette.Line,
+    outlineVariant = Palette.Line
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF81C784),
-    onPrimary = Color(0xFF003910),
-    secondary = CautionYellow,
-    tertiary = Color(0xFFEF9A9A),
-    background = Color(0xFF101410),
-    surface = Color(0xFF1A1F1A),
-    onBackground = Color(0xFFE8EDE8),
-    onSurface = Color(0xFFE8EDE8),
-    surfaceVariant = Color(0xFF2A322A),
-    onSurfaceVariant = Color(0xFFB4C0B4)
+    primary = Palette.NightGold,
+    onPrimary = Color(0xFF2A210C),
+    secondary = Palette.NightGold,
+    tertiary = Color(0xFFE0A090),
+    background = Palette.NightBg,
+    surface = Palette.NightCard,
+    onBackground = Palette.NightInk,
+    onSurface = Palette.NightInk,
+    surfaceVariant = Color(0xFF2C2720),
+    onSurfaceVariant = Palette.NightInkSoft,
+    outline = Color(0xFF3F392F),
+    outlineVariant = Color(0xFF3F392F)
 )
 
 private val AppTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 34.sp,
-        lineHeight = 40.sp
+        fontSize = 32.sp,
+        lineHeight = 40.sp,
+        letterSpacing = (-0.4).sp
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
         fontSize = 26.sp,
-        lineHeight = 32.sp
+        lineHeight = 34.sp,
+        letterSpacing = (-0.3).sp
     ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
+        fontSize = 20.sp,
         lineHeight = 28.sp
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
+        fontSize = 18.sp,
         lineHeight = 26.sp
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 17.sp,
+        fontSize = 16.sp,
         lineHeight = 24.sp
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
-        fontSize = 17.sp,
-        lineHeight = 24.sp
+        fontSize = 16.sp,
+        lineHeight = 26.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
+        fontSize = 14.sp,
         lineHeight = 22.sp
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
-        letterSpacing = 0.4.sp
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 1.2.sp
     )
 )
 
@@ -108,8 +130,8 @@ fun HomeStrengthTheme(
 }
 
 object StatusColors {
-    val complete = GreenPrimary
-    val caution = CautionYellow
-    val fatigue = FatigueRed
-    val completeDark = GreenDark
+    val complete = Palette.GoldDeep
+    val caution = Palette.Caution
+    val fatigue = Palette.Fatigue
+    val completeDark = Palette.Gold
 }

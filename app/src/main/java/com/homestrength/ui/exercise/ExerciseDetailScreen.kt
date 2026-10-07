@@ -42,50 +42,51 @@ fun ExerciseDetailScreen(
             )
         }
     ) { padding ->
-        if (state.loading) {
-            Text("加载中…", modifier = Modifier.padding(padding).padding(24.dp))
-            return@Scaffold
-        }
-        if (exercise == null) {
-            Text("未找到动作", modifier = Modifier.padding(padding).padding(24.dp))
-            return@Scaffold
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Text(exercise.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "当前阻力  ${if (state.currentResistance > 0) "${state.currentResistance} LB" else "—"}",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text("最佳次数  ${state.bestLabel}", style = MaterialTheme.typography.titleMedium)
-                if (exercise.description.isNotBlank()) {
-                    Text(exercise.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text("训练历史", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        when {
+            state.loading -> {
+                Text("加载中…", modifier = Modifier.padding(padding).padding(24.dp))
             }
-
-            if (state.history.isEmpty()) {
-                item {
-                    Text("还没有记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                items(state.history) { item ->
-                    val date = DateTimeFormatter.ofPattern("M/d")
-                        .withZone(ZoneId.systemDefault())
-                        .format(Instant.ofEpochMilli(item.dateMillis))
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(date, style = MaterialTheme.typography.titleMedium)
-                        Text(item.summaryLabel)
+            exercise == null -> {
+                Text("未找到动作", modifier = Modifier.padding(padding).padding(24.dp))
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Text(exercise.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "当前阻力  ${if (state.currentResistance > 0) "${state.currentResistance} LB" else "—"}",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text("最佳次数  ${state.bestLabel}", style = MaterialTheme.typography.titleMedium)
+                        if (exercise.description.isNotBlank()) {
+                            Text(exercise.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text("训练历史", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     }
-                    HorizontalDivider()
+
+                    if (state.history.isEmpty()) {
+                        item {
+                            Text("还没有记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        items(state.history) { item ->
+                            val date = DateTimeFormatter.ofPattern("M/d")
+                                .withZone(ZoneId.systemDefault())
+                                .format(Instant.ofEpochMilli(item.dateMillis))
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(date, style = MaterialTheme.typography.titleMedium)
+                                Text(item.summaryLabel)
+                            }
+                            HorizontalDivider()
+                        }
+                    }
                 }
             }
         }
