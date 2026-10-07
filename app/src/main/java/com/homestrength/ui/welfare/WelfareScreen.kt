@@ -465,61 +465,71 @@ private fun RewardRow(
     onDelete: () -> Unit
 ) {
     val canAfford = coins >= reward.cost
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 RoundedCornerShape(10.dp)
             )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (showDragHint) {
-            Text(
-                "⋮",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                reward.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1
-            )
-            Text(
-                "${reward.cost} 币",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        TextButton(
-            onClick = onEdit,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp)
-        ) { Text("改") }
-        TextButton(
-            onClick = onDelete,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp)
-        ) { Text("删") }
-        Button(
-            onClick = onRedeem,
-            enabled = canAfford,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(30.dp),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Top
         ) {
-            Text(if (canAfford) "兑" else "差")
+            if (showDragHint) {
+                Text(
+                    "⋮",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    reward.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "${reward.cost} 币",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(
+                onClick = onEdit,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp)
+            ) { Text("改") }
+            TextButton(
+                onClick = onDelete,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp)
+            ) { Text("删") }
+            Button(
+                onClick = onRedeem,
+                enabled = canAfford,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(30.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                Text(if (canAfford) "兑" else "差")
+            }
         }
     }
 }
@@ -532,13 +542,12 @@ private fun RedemptionRow(item: RewardRedemptionEntity) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
                 item.title,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1
+                style = MaterialTheme.typography.bodyMedium
             )
             Text(
                 date,
