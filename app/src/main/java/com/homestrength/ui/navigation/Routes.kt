@@ -20,8 +20,13 @@ sealed class Routes(val route: String) {
     data object ExerciseDetail : Routes("exercise/{exerciseId}") {
         fun create(exerciseId: Long) = "exercise/$exerciseId"
     }
-    data object LightPractice : Routes("practice/{track}") {
-        fun create(track: String) = "practice/$track"
+    /**
+     * Light practice. [itemId]=0 means ad-hoc (no checklist row).
+     * [targetSeconds]=0 means unlimited count-up.
+     */
+    data object LightPractice : Routes("practice/{track}/{itemId}/{targetSeconds}") {
+        fun create(track: String, itemId: Long = 0L, targetSeconds: Int = 0) =
+            "practice/$track/$itemId/$targetSeconds"
     }
     data object Welfare : Routes("welfare")
     data object Profile : Routes("profile")

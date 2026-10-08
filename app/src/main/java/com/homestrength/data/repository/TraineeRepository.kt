@@ -19,6 +19,7 @@ import com.homestrength.domain.trainee.PlanPeriod
 import com.homestrength.domain.trainee.PlanPeriodKind
 import com.homestrength.domain.trainee.TraineeGrade
 import com.homestrength.domain.trainee.TraineeRewards
+import com.homestrength.domain.trainee.secondsToPracticedMinutes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
@@ -43,7 +44,11 @@ class TraineeRepository(
     fun observePowerList(): Flow<List<PowerListItemEntity>> =
         traineeDao.observePowerList(todayKey())
 
-    suspend fun addPowerItem(title: String, track: PracticeTrack?): Boolean {
+    suspend fun addPowerItem(
+        title: String,
+        track: PracticeTrack?,
+        targetDurationSeconds: Int = 0
+    ): Boolean {
         val day = todayKey()
         val current = traineeDao.getPowerList(day)
         if (current.size >= 5) return false
@@ -54,10 +59,16 @@ class TraineeRepository(
                 dayKey = day,
                 title = title.trim().ifBlank { trackLabel(resolved) },
                 track = resolved,
-                sortOrder = current.size
+                sortOrder = current.size,
+                targetDurationSeconds = targetDurationSeconds.coerceAtLeast(0)
             )
         )
         return true
+    }
+
+    suspend fun getPowerItem(id: Long): PowerListItemEntity? {
+        val day = todayKey()
+        return traineeDao.getPowerList(day).firstOrNull { it.id == id }
     }
 
     suspend fun togglePowerItemDone(id: Long) {
@@ -74,7 +85,12 @@ class TraineeRepository(
                 undoMeditationEnergy()
             }
             traineeDao.updatePowerItem(
-                item.copy(status = PowerItemStatus.PENDING, rewardFans = 0, rewardCoins = 0)
+                item.copy(
+                    status = PowerItemStatus.PENDING,
+                    rewardFans = 0,
+                    rewardCoins = 0,
+                    completedViaPractice = false
+                )
             )
         } else {
             val profile = getProfile()
@@ -85,7 +101,8 @@ class TraineeRepository(
                 item.copy(
                     status = PowerItemStatus.DONE,
                     rewardFans = fans,
-                    rewardCoins = coins
+                    rewardCoins = coins,
+                    completedViaPractice = false
                 )
             )
         }
@@ -108,36 +125,47 @@ class TraineeRepository(
         traineeDao.deletePowerItem(id)
     }
 
-    suspend fun startLightPractice(track: PracticeTrack): Long {
+    suspend fun startLightPractice(track: PracticeTrack, powerListItemId: Long = 0L): Long {
         val canonical = canonicalTrack(track)
         require(canonical in timedLightTracks) { "This track is not a timed light practice" }
-        return traineeDao.insertLightPractice(
+        val practiceId = traineeDao.insertLightPractice(
             LightPracticeEntity(
                 track = canonical,
                 startedAt = System.currentTimeMillis()
             )
         )
+        if (powerListItemId > 0L) {
+            val item = getPowerItem(powerListItemId)
+            if (item != null) {
+                traineeDao.updatePowerItem(item.copy(linkedPracticeId = practiceId))
+            }
+        }
+        return practiceId
     }
 
     suspend fun getLightPractice(id: Long): LightPracticeEntity? = traineeDao.getLightPractice(id)
 
     /**
-     * Completes a light track practice and awards fans/coins.
+     * Completes a light track practice and awards light-track fans/coins only.
+     * When [powerListItemId] is set, marks that checklist row done without checklist rewards.
      * @return updated practice or null
      */
     suspend fun completeLightPractice(
         id: Long,
         durationSeconds: Int,
         note: String,
-        noteTitle: String
+        noteTitle: String,
+        powerListItemId: Long = 0L
     ): LightPracticeEntity? {
         val current = traineeDao.getLightPractice(id) ?: return null
         if (current.completed) return current
         val profile = getProfile()
         val fans = profile.lightFans
         val coins = profile.lightCoins
+        val seconds = durationSeconds.coerceAtLeast(0)
+        val minutes = secondsToPracticedMinutes(seconds)
         val updated = current.copy(
-            durationSeconds = durationSeconds.coerceAtLeast(0),
+            durationSeconds = seconds,
             note = note.trim(),
             noteTitle = noteTitle.trim(),
             completed = true,
@@ -147,14 +175,59 @@ class TraineeRepository(
         traineeDao.updateLightPractice(updated)
         award(fans, coins, energyDelta = -10)
         val track = canonicalTrack(current.track)
-        addPowerItemIfRoom(
-            title = trackLabel(track),
-            track = track,
-            markDone = true,
-            rewardFans = fans,
-            rewardCoins = coins
-        )
+        val linkedId = if (powerListItemId > 0L) {
+            powerListItemId
+        } else {
+            getPowerItemByLinkedPractice(id)?.id ?: 0L
+        }
+        if (linkedId > 0L) {
+            markPowerItemDoneViaPractice(
+                itemId = linkedId,
+                practicedMinutes = minutes,
+                practiceId = id,
+                rewardFans = fans,
+                rewardCoins = coins
+            )
+        } else {
+            // Store light rewards on the row so 去掉/取消勾选 can claw them back.
+            addPowerItemIfRoom(
+                title = trackLabel(track),
+                track = track,
+                markDone = true,
+                rewardFans = fans,
+                rewardCoins = coins,
+                practicedMinutes = minutes,
+                linkedPracticeId = id,
+                completedViaPractice = true
+            )
+        }
         return updated
+    }
+
+    private suspend fun getPowerItemByLinkedPractice(practiceId: Long): PowerListItemEntity? {
+        val day = todayKey()
+        return traineeDao.getPowerList(day).firstOrNull { it.linkedPracticeId == practiceId }
+    }
+
+    private suspend fun markPowerItemDoneViaPractice(
+        itemId: Long,
+        practicedMinutes: Int,
+        practiceId: Long,
+        rewardFans: Int,
+        rewardCoins: Int
+    ) {
+        val item = getPowerItem(itemId) ?: return
+        // Light rewards already applied; keep amounts on the row for clawback on 去掉/取消勾选.
+        traineeDao.updatePowerItem(
+            item.copy(
+                status = PowerItemStatus.DONE,
+                rewardFans = rewardFans,
+                rewardCoins = rewardCoins,
+                practicedMinutes = practicedMinutes.coerceAtLeast(item.practicedMinutes),
+                linkedPracticeId = practiceId,
+                completedViaPractice = true
+            )
+        )
     }
 
     suspend fun awardStrengthCompletion() {
@@ -342,12 +415,20 @@ class TraineeRepository(
     }
 
     /**
-     * Places a period goal into today's checklist (生活/指定轨道).
+     * Places a period goal into today's checklist with optional countdown length.
+     * Duration is chosen at place-time (not stored on the goal).
      * @return null on success, otherwise a short message.
      */
-    suspend fun placePeriodGoalIntoToday(id: Long): String? {
+    suspend fun placePeriodGoalIntoToday(
+        id: Long,
+        targetDurationSeconds: Int = 0
+    ): String? {
         val goal = traineeDao.getPeriodGoal(id) ?: return "计划不存在"
-        val ok = addPowerItem(goal.title, goal.track ?: PracticeTrack.LIFE)
+        val ok = addPowerItem(
+            title = goal.title,
+            track = goal.track ?: PracticeTrack.LIFE,
+            targetDurationSeconds = targetDurationSeconds.coerceAtLeast(0)
+        )
         return if (ok) null else "今天清单已满（最多 5 件）"
     }
 
@@ -547,7 +628,10 @@ class TraineeRepository(
         track: PracticeTrack?,
         markDone: Boolean,
         rewardFans: Int = 0,
-        rewardCoins: Int = 0
+        rewardCoins: Int = 0,
+        practicedMinutes: Int = 0,
+        linkedPracticeId: Long = 0L,
+        completedViaPractice: Boolean = false
     ) {
         val day = todayKey()
         val current = traineeDao.getPowerList(day)
@@ -559,7 +643,11 @@ class TraineeRepository(
                     existing.copy(
                         status = PowerItemStatus.DONE,
                         rewardFans = rewardFans,
-                        rewardCoins = rewardCoins
+                        rewardCoins = rewardCoins,
+                        practicedMinutes = practicedMinutes.coerceAtLeast(existing.practicedMinutes),
+                        linkedPracticeId = linkedPracticeId.takeIf { it > 0L }
+                            ?: existing.linkedPracticeId,
+                        completedViaPractice = completedViaPractice
                     )
                 )
             }
@@ -574,7 +662,10 @@ class TraineeRepository(
                 status = if (markDone) PowerItemStatus.DONE else PowerItemStatus.PENDING,
                 sortOrder = current.size,
                 rewardFans = if (markDone) rewardFans else 0,
-                rewardCoins = if (markDone) rewardCoins else 0
+                rewardCoins = if (markDone) rewardCoins else 0,
+                practicedMinutes = practicedMinutes,
+                linkedPracticeId = linkedPracticeId,
+                completedViaPractice = completedViaPractice
             )
         )
     }

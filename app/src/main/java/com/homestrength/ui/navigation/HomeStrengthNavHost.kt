@@ -14,11 +14,13 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.homestrength.HomeStrengthApp
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.WorkoutType
 import com.homestrength.data.local.relation.SessionWithLogs
 import com.homestrength.data.repository.HomeStrengthRepository
 import com.homestrength.data.repository.TraineeRepository
+import androidx.compose.ui.platform.LocalContext
 import com.homestrength.ui.bands.BandManageScreen
 import com.homestrength.ui.bands.BandManageViewModel
 import com.homestrength.ui.exercise.ExerciseDetailScreen
@@ -66,8 +68,14 @@ fun HomeStrengthNavHost(
                 onContinueWorkout = { sessionId ->
                     navController.navigate(Routes.ActiveWorkout.create(sessionId))
                 },
-                onOpenLightTrack = { track ->
-                    navController.navigate(Routes.LightPractice.create(track.name))
+                onOpenLightPractice = { nav ->
+                    navController.navigate(
+                        Routes.LightPractice.create(
+                            track = nav.track.name,
+                            itemId = nav.itemId,
+                            targetSeconds = nav.targetSeconds
+                        )
+                    )
                 },
                 onOpenWelfare = { navController.navigate(Routes.Welfare.route) },
                 onOpenHistory = { navController.navigate(Routes.History.route) },
@@ -98,9 +106,15 @@ fun HomeStrengthNavHost(
 
         composable(
             route = Routes.LightPractice.route,
-            arguments = listOf(navArgument("track") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("track") { type = NavType.StringType },
+                navArgument("itemId") { type = NavType.LongType; defaultValue = 0L },
+                navArgument("targetSeconds") { type = NavType.IntType; defaultValue = 0 }
+            )
         ) { entry ->
             val trackName = entry.arguments?.getString("track") ?: return@composable
+            val itemId = entry.arguments?.getLong("itemId") ?: 0L
+            val targetSeconds = entry.arguments?.getInt("targetSeconds") ?: 0
             val parsed = runCatching { PracticeTrack.valueOf(trackName) }.getOrNull()
             val track = when (parsed) {
                 PracticeTrack.ALGORITHM,
@@ -118,6 +132,8 @@ fun HomeStrengthNavHost(
             LightPracticeScreen(
                 track = track,
                 traineeRepository = traineeRepository,
+                powerListItemId = itemId,
+                targetSeconds = targetSeconds,
                 onDone = { _, _ ->
                     navController.popBackStack(Routes.Home.route, inclusive = false)
                 },
@@ -158,15 +174,21 @@ fun HomeStrengthNavHost(
         }
 
         composable(Routes.Settings.route) {
+            val app = LocalContext.current.applicationContext as HomeStrengthApp
             val vm: SettingsViewModel = viewModel(
-                factory = SettingsViewModel.factory(repository, traineeRepository)
+                factory = SettingsViewModel.factory(
+                    repository,
+                    traineeRepository,
+                    app.container.backupRepository
+                )
             )
             SettingsScreen(
                 viewModel = vm,
                 onBack = { navController.popBackStack() },
                 onOpenBands = { navController.navigate(Routes.Bands.route) },
                 onOpenPlanA = { navController.navigate(Routes.PlanA.route) },
-                onOpenPlanB = { navController.navigate(Routes.PlanB.route) }
+                onOpenPlanB = { navController.navigate(Routes.PlanB.route) },
+                onMessage = onError
             )
         }
 

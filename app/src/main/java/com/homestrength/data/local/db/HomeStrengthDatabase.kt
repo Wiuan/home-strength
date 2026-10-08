@@ -45,7 +45,7 @@ import kotlinx.coroutines.sync.withLock
         RewardRedemptionEntity::class,
         PeriodGoalEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -57,6 +57,9 @@ abstract class HomeStrengthDatabase : RoomDatabase() {
     abstract fun traineeDao(): TraineeDao
 
     companion object {
+        /** Keep in sync with [@Database] version for backup metadata. */
+        const val SCHEMA_VERSION = 12
+
         @Volatile
         private var instance: HomeStrengthDatabase? = null
 
@@ -263,6 +266,23 @@ abstract class HomeStrengthDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE power_list_items ADD COLUMN targetDurationSeconds INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE power_list_items ADD COLUMN practicedMinutes INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE power_list_items ADD COLUMN linkedPracticeId INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE power_list_items ADD COLUMN completedViaPractice INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getInstance(context: Context): HomeStrengthDatabase {
             return instance ?: synchronized(this) {
                 instance ?: build(context.applicationContext).also { instance = it }
@@ -285,7 +305,8 @@ abstract class HomeStrengthDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
-                    MIGRATION_10_11
+                    MIGRATION_10_11,
+                    MIGRATION_11_12
                 )
                 .build()
         }

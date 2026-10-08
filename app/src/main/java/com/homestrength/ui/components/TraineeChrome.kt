@@ -7,18 +7,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.homestrength.ui.theme.Palette
 
 val TraineeCardShape = RoundedCornerShape(22.dp)
+val WeChatGroupShape = RoundedCornerShape(12.dp)
 
 @Composable
 fun SoftCard(
@@ -95,30 +97,141 @@ fun HeroTitle(
     }
 }
 
-/** Tighter header for secondary pages (档案 / 福利社). */
+/**
+ * WeChat-like nav bar: back chevron + title on the left, subtitle on the right — one row.
+ */
 @Composable
 fun CompactPageHeader(
     title: String,
     subtitle: String,
     onBack: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        TextButton(
-            onClick = onBack,
-            contentPadding = PaddingValues(0.dp),
-            modifier = Modifier.height(32.dp)
-        ) { Text("返回") }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = "‹",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onBack)
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+        )
         Text(
             title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onBack)
         )
-        Text(
-            subtitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        }
+    }
+}
+
+/** Grouped white block (WeChat settings / me page). */
+@Composable
+fun WeChatGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(WeChatGroupShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                0.5.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                WeChatGroupShape
+            ),
+        content = content
+    )
+}
+
+@Composable
+fun WeChatGroupLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 6.dp)
+    )
+}
+
+@Composable
+fun WeChatInsetDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 16.dp),
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+    )
+}
+
+@Composable
+fun WeChatCell(
+    title: String,
+    subtitle: String? = null,
+    value: String? = null,
+    showChevron: Boolean = true,
+    showDivider: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .then(
+                    if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+                )
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+            if (!value.isNullOrBlank()) {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (showChevron && onClick != null) {
+                Text(
+                    "›",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                )
+            }
+        }
+        if (showDivider) WeChatInsetDivider()
     }
 }
 

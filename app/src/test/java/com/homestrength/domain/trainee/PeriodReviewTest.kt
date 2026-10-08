@@ -17,7 +17,12 @@ class PeriodReviewTest {
             val days = (1..ym.lengthOfMonth()).map { d ->
                 val day = ym.atDay(d)
                 if (d in strengthDays) {
-                    DayActivity(day, 1, setOf(PracticeTrack.STRENGTH), listOf("力量"))
+                    DayActivity(
+                        day,
+                        1,
+                        setOf(PracticeTrack.STRENGTH),
+                        listOf(DayEntry("力量", track = PracticeTrack.STRENGTH))
+                    )
                 } else {
                     DayActivity(day, 0, emptySet(), emptyList())
                 }

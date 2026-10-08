@@ -20,5 +20,15 @@ data class PowerListItemEntity(
     /** Fans granted for this item's current DONE state; clawed back when unchecked. */
     val rewardFans: Int = 0,
     /** Coins granted for this item's current DONE state; clawed back when unchecked. */
-    val rewardCoins: Int = 0
+    val rewardCoins: Int = 0,
+    /**
+     * Planned countdown length in seconds. 0 = no timer (life tick-only, or unlimited count-up).
+     */
+    val targetDurationSeconds: Int = 0,
+    /** Accumulated practiced minutes for this checklist row (seconds dropped). */
+    val practicedMinutes: Int = 0,
+    /** Active / last linked light practice id; 0 = none. */
+    val linkedPracticeId: Long = 0,
+    /** Done via light-track completion — no checklist reward was granted. */
+    val completedViaPractice: Boolean = false
 )

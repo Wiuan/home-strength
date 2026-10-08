@@ -1,6 +1,7 @@
 package com.homestrength.di
 
 import android.content.Context
+import com.homestrength.data.backup.BackupRepository
 import com.homestrength.data.local.db.HomeStrengthDatabase
 import com.homestrength.data.repository.HomeStrengthRepository
 import com.homestrength.data.repository.TraineeRepository
@@ -13,6 +14,8 @@ class AppContainer(context: Context) {
     val traineeRepository = TraineeRepository(
         traineeDao = database.traineeDao()
     )
+
+    val backupRepository = BackupRepository(database)
 
     init {
         runBlocking(Dispatchers.IO) {

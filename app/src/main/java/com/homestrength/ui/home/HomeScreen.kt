@@ -13,16 +13,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,12 +64,47 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+data class LightPracticeNav(
+    val track: PracticeTrack,
+    val itemId: Long = 0L,
+    val targetSeconds: Int = 0
+)
+
+private val ChecklistTracks = listOf(
+    PracticeTrack.LIFE,
+    PracticeTrack.CULTIVATION,
+    PracticeTrack.ALGORITHM,
+    PracticeTrack.VOCAL
+)
+
+private val DurationPresetsMinutes = listOf(0, 10, 15, 25)
+
+/** Placeholder / blank-submit default for checklist items. */
+internal fun defaultChecklistTitle(track: PracticeTrack, minutes: Int): String {
+    val m = minutes.coerceAtLeast(0).let { if (it == 0 && track != PracticeTrack.LIFE) 10 else it }
+    return when (track) {
+        PracticeTrack.LIFE -> "打扫卫生"
+        PracticeTrack.CULTIVATION -> "阅读 ${if (m > 0) m else 10} 分钟"
+        PracticeTrack.ALGORITHM -> "算法${if (m > 0) m else 10}分钟"
+        PracticeTrack.VOCAL -> "声乐${if (m > 0) m else 10}分钟"
+        else -> TraineeRepository.trackLabel(track)
+    }
+}
+
+private fun resolveDraftMinutes(draftDurationMin: Int, customDurationText: String): Int {
+    return when {
+        customDurationText.isNotBlank() -> customDurationText.toIntOrNull() ?: 0
+        draftDurationMin < 0 -> 0
+        else -> draftDurationMin
+    }
+}
+
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onStartWorkout: () -> Unit,
     onContinueWorkout: (Long) -> Unit,
-    onOpenLightTrack: (PracticeTrack) -> Unit,
+    onOpenLightPractice: (LightPracticeNav) -> Unit,
     onOpenWelfare: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -72,13 +113,13 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var draftItem by remember { mutableStateOf("") }
+    var draftTrack by remember { mutableStateOf(PracticeTrack.LIFE) }
+    var draftDurationMin by remember { mutableStateOf(0) }
+    var customDurationText by remember { mutableStateOf("") }
     var celebratingGrade by remember { mutableStateOf<TraineeGrade?>(null) }
     val scope = rememberCoroutineScope()
-    val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = MaterialTheme.colorScheme.secondary,
-        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-    )
-
+    val draftMinutes = resolveDraftMinutes(draftDurationMin, customDurationText)
+    val titleHint = defaultChecklistTitle(draftTrack, draftMinutes)
     LaunchedEffect(viewModel) {
         viewModel.gradeUpgrade.collect { celebratingGrade = it }
     }
@@ -112,56 +153,179 @@ fun HomeScreen(
                 onClick = onOpenProfile
             )
 
-            SoftCard(contentPadding = 12.dp) {
-                SectionLabel("今天的练习清单")
-                Text(
-                    "最多 5 件 · 勾选 +${state.profile.checklistCoins} 币",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                if (state.powerList.isEmpty()) {
+            SoftCard(contentPadding = 0.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        "还没有安排。选轨道，或写一条生活备注。",
-                        style = MaterialTheme.typography.bodySmall,
+                        "今天的练习清单",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "${state.powerList.size}/5 · 勾选 +${state.profile.checklistCoins}币",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f))
+                if (state.powerList.isEmpty()) {
+                    Text(
+                        "点选轨道后直接添加，或改标题",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f))
                 } else {
                     state.powerList.forEachIndexed { index, item ->
-                        if (index > 0) Spacer(Modifier.height(6.dp))
                         PowerRow(
                             item = item,
                             onToggle = { viewModel.togglePowerItem(item.id) },
-                            onDelete = { viewModel.deletePowerItem(item.id) }
+                            onDelete = { viewModel.deletePowerItem(item.id) },
+                            onStart = {
+                                val track = item.track ?: return@PowerRow
+                                onOpenLightPractice(
+                                    LightPracticeNav(
+                                        track = TraineeRepository.canonicalTrack(track),
+                                        itemId = item.id,
+                                        targetSeconds = item.targetDurationSeconds
+                                    )
+                                )
+                            }
                         )
+                        if (index < state.powerList.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 46.dp),
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                            )
+                        }
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f))
                 }
                 if (state.powerList.size < 5) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        OutlinedTextField(
-                            value = draftItem,
-                            onValueChange = { draftItem = it },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            placeholder = { Text("晾衣服") },
-                            colors = fieldColors,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        TextButton(
-                            onClick = {
-                                if (draftItem.isNotBlank()) {
-                                    viewModel.addPowerItem(draftItem, PracticeTrack.LIFE)
-                                    draftItem = ""
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            ChecklistTracks.forEach { track ->
+                                CompactChip(
+                                    selected = draftTrack == track,
+                                    label = TraineeRepository.trackLabel(track),
+                                    onClick = {
+                                        draftTrack = track
+                                        if (track == PracticeTrack.LIFE) {
+                                            draftDurationMin = 0
+                                            customDurationText = ""
+                                        } else if (
+                                            draftDurationMin == 0 && customDurationText.isBlank()
+                                        ) {
+                                            draftDurationMin = 10
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            DurationPresetsMinutes.forEach { min ->
+                                CompactChip(
+                                    selected = draftDurationMin == min &&
+                                        customDurationText.isBlank(),
+                                    label = when {
+                                        min == 0 && draftTrack == PracticeTrack.LIFE -> "只勾选"
+                                        min == 0 -> "不限时"
+                                        else -> "${min}分"
+                                    },
+                                    onClick = {
+                                        draftDurationMin = min
+                                        customDurationText = ""
+                                    }
+                                )
+                            }
+                            CompactMinuteField(
+                                value = customDurationText,
+                                onValueChange = {
+                                    customDurationText = it.filter(Char::isDigit).take(3)
+                                    if (customDurationText.isNotBlank()) draftDurationMin = -1
                                 }
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(36.dp)
-                        ) { Text("添加") }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            BasicTextField(
+                                value = draftItem,
+                                onValueChange = { draftItem = it },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 15.sp
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                decorationBox = { inner ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (draftItem.isEmpty()) {
+                                            Text(
+                                                titleHint,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                }
+                            )
+                            Text(
+                                "添加",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        val minutes = draftMinutes
+                                        val title = draftItem.trim()
+                                            .ifBlank { defaultChecklistTitle(draftTrack, minutes) }
+                                        val seconds = if (
+                                            draftTrack == PracticeTrack.LIFE && minutes <= 0
+                                        ) {
+                                            0
+                                        } else if (minutes <= 0) {
+                                            0
+                                        } else {
+                                            minutes * 60
+                                        }
+                                        viewModel.addPowerItem(title, draftTrack, seconds)
+                                        draftItem = ""
+                                        customDurationText = ""
+                                        draftDurationMin =
+                                            if (draftTrack == PracticeTrack.LIFE) 0 else 10
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -182,8 +346,7 @@ fun HomeScreen(
                         PracticeTrack.CULTIVATION
                     ).forEach { track ->
                         TrackPill(TraineeRepository.trackLabel(track)) {
-                            viewModel.addPowerItem(TraineeRepository.trackLabel(track), track)
-                            onOpenLightTrack(track)
+                            onOpenLightPractice(LightPracticeNav(track = track))
                         }
                     }
                     val sleptToday = state.profile.sleepDate == LocalDate.now().toString()
@@ -374,22 +537,104 @@ private fun ProfileCard(
 }
 
 @Composable
+private fun CompactChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(label, style = MaterialTheme.typography.labelMedium)
+        },
+        modifier = Modifier.height(30.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            selectedLabelColor = MaterialTheme.colorScheme.primary
+        )
+    )
+}
+
+@Composable
+private fun CompactMinuteField(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = TextStyle(
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        ),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        modifier = Modifier
+            .width(48.dp)
+            .height(30.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        decorationBox = { inner ->
+            Box(contentAlignment = Alignment.Center) {
+                if (value.isEmpty()) {
+                    Text(
+                        "分",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                inner()
+            }
+        }
+    )
+}
+
+@Composable
 private fun PowerRow(
     item: PowerListItemEntity,
     onToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onStart: () -> Unit
 ) {
     val done = item.status == PowerItemStatus.DONE
+    val canStart = !done && when (item.track) {
+        PracticeTrack.LIFE -> item.targetDurationSeconds > 0
+        PracticeTrack.ALGORITHM,
+        PracticeTrack.VOCAL,
+        PracticeTrack.CULTIVATION,
+        PracticeTrack.READING,
+        PracticeTrack.CALLIGRAPHY -> true
+        else -> false
+    }
+    val meta = buildList {
+        item.track?.let { add(TraineeRepository.trackLabel(it)) }
+        when {
+            item.targetDurationSeconds > 0 -> add("${item.targetDurationSeconds / 60}分")
+            item.track != null &&
+                item.track != PracticeTrack.LIFE &&
+                item.track != PracticeTrack.STRENGTH &&
+                item.track != PracticeTrack.SLEEP &&
+                item.track != PracticeTrack.MEDITATION -> add("不限时")
+        }
+        if (item.practicedMinutes > 0) add("已练${item.practicedMinutes}分")
+    }.joinToString(" · ")
+
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         QuietCircleCheck(checked = done, onClick = onToggle)
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 item.title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = if (done) {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -398,21 +643,35 @@ private fun PowerRow(
                 },
                 maxLines = 1
             )
-            item.track?.let {
+            if (meta.isNotBlank()) {
                 Text(
-                    TraineeRepository.trackLabel(it),
+                    meta,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
             }
         }
-        TextButton(
-            onClick = onDelete,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp)
-        ) {
-            Text("去掉", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (canStart) {
+            Text(
+                "开始",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onStart)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            )
         }
+        Text(
+            "去掉",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onDelete)
+                .padding(horizontal = 4.dp, vertical = 4.dp)
+        )
     }
 }
 

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.homestrength.data.local.entity.PeriodGoalEntity
 import com.homestrength.data.local.entity.PeriodGoalStatus
 import com.homestrength.data.local.entity.PowerItemStatus
+import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.TraineeProfileEntity
 import com.homestrength.data.repository.HomeStrengthRepository
 import com.homestrength.data.repository.TraineeRepository
@@ -155,10 +156,19 @@ class ProfileViewModel(
         }
     }
 
-    fun addPeriodGoal(title: String, targetParts: Int = 1) {
+    fun addPeriodGoal(
+        title: String,
+        targetParts: Int = 1,
+        track: PracticeTrack? = null
+    ) {
         viewModelScope.launch {
             val period = viewingPeriod.value
-            val err = traineeRepository.addPeriodGoal(title, period, targetParts = targetParts)
+            val err = traineeRepository.addPeriodGoal(
+                title = title,
+                period = period,
+                track = track,
+                targetParts = targetParts
+            )
             uiMessage.value = err ?: "已加入${period.planTitle()}"
         }
     }
@@ -186,9 +196,12 @@ class ProfileViewModel(
         viewModelScope.launch { traineeRepository.deletePeriodGoal(id) }
     }
 
-    fun placeGoalIntoToday(id: Long) {
+    fun placeGoalIntoToday(id: Long, targetDurationSeconds: Int = 0) {
         viewModelScope.launch {
-            uiMessage.value = traineeRepository.placePeriodGoalIntoToday(id) ?: "已放进今天清单"
+            uiMessage.value = traineeRepository.placePeriodGoalIntoToday(
+                id = id,
+                targetDurationSeconds = targetDurationSeconds
+            ) ?: "已放进今天清单"
             refreshPeriodReview()
         }
     }

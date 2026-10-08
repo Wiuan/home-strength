@@ -37,4 +37,7 @@ interface BandDao {
 
     @Query("SELECT COUNT(*) FROM bands")
     suspend fun count(): Int
+
+    @Query("DELETE FROM bands")
+    suspend fun deleteAll()
 }

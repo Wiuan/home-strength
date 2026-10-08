@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +17,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -44,7 +47,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -66,7 +71,9 @@ import com.homestrength.domain.trainee.TraineeGrade
 import com.homestrength.ui.components.CompactPageHeader
 import com.homestrength.ui.components.GoldWash
 import com.homestrength.ui.components.SectionLabel
-import com.homestrength.ui.components.SoftCard
+import com.homestrength.ui.components.WeChatGroup
+import com.homestrength.ui.components.WeChatGroupLabel
+import com.homestrength.ui.components.WeChatInsetDivider
 import com.homestrength.ui.theme.Palette
 import java.time.LocalDate
 import java.time.YearMonth
@@ -85,8 +92,19 @@ fun ProfileScreen(
     var showGradeHelp by remember { mutableStateOf(false) }
     var draftGoal by remember { mutableStateOf("") }
     var draftParts by remember { mutableStateOf("1") }
+    var draftTrack by remember { mutableStateOf<PracticeTrack?>(PracticeTrack.LIFE) }
+    var placeTodayGoalId by remember { mutableStateOf<Long?>(null) }
+    var placeDurationMin by remember { mutableIntStateOf(0) }
+    var placeCustomDuration by remember { mutableStateOf("") }
     val period = state.viewingPeriod
-    val supportsParts = period.kind != PlanPeriodKind.MONTH
+    val supportsParts = true
+    val goalTracks = listOf(
+        PracticeTrack.LIFE,
+        PracticeTrack.CULTIVATION,
+        PracticeTrack.ALGORITHM,
+        PracticeTrack.VOCAL,
+        PracticeTrack.STRENGTH
+    )
 
     LaunchedEffect(Unit) { viewModel.refreshPeriodReview() }
     LaunchedEffect(state.message) {
@@ -100,8 +118,9 @@ fun ProfileScreen(
         draftParts = when (period.kind) {
             PlanPeriodKind.YEAR -> "12"
             PlanPeriodKind.QUARTER -> "3"
-            PlanPeriodKind.MONTH -> "1"
+            PlanPeriodKind.MONTH -> "3"
         }
+        draftTrack = PracticeTrack.LIFE
     }
 
     Box(
@@ -115,7 +134,7 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             CompactPageHeader(
                 title = "${state.profile.nickname} · 档案",
@@ -123,9 +142,12 @@ fun ProfileScreen(
                 onBack = onBack
             )
 
-            SoftCard(contentPadding = 12.dp) {
+            WeChatGroupLabel("当前年级")
+            WeChatGroup {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -133,42 +155,42 @@ fun ProfileScreen(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        SectionLabel("当前年级")
                         Text(grade.label, style = MaterialTheme.typography.titleMedium)
                         Text(
                             "${state.profile.fans} 粉丝 · ${state.profile.coins} 币",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             TraineeGrade.letter(grade),
-                            fontSize = 36.sp,
+                            fontSize = 32.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Box(
                             modifier = Modifier
                                 .padding(top = 2.dp)
-                                .size(22.dp)
+                                .size(20.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                                 .clickable { showGradeHelp = true },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("?", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            Text("?", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .height(4.dp),
                     color = MaterialTheme.colorScheme.secondary,
                     trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                 )
-                Spacer(Modifier.height(4.dp))
                 Text(
                     text = if (nextMin == null) {
                         "已到最高阶 · 出道预备"
@@ -176,192 +198,304 @@ fun ProfileScreen(
                         "距 ${TraineeGrade.fromFans(nextMin).label} 还差 ${nextMin - state.profile.fans} 粉丝"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }
 
-            SoftCard(contentPadding = 12.dp) {
-                PeriodKindRow(
-                    kind = period.kind,
-                    onSelect = viewModel::setPeriodKind
-                )
-                Spacer(Modifier.height(4.dp))
-                PeriodPager(
-                    period = period,
-                    isCurrent = state.isCurrentPeriod,
-                    onPrev = { viewModel.shiftPeriod(-1) },
-                    onNext = { viewModel.shiftPeriod(1) },
-                    onToday = viewModel::goToCurrentPeriod,
-                    onPick = viewModel::goToPeriod
-                )
-                Spacer(Modifier.height(6.dp))
-                SectionLabel(period.planTitle())
-                Text(
-                    planHint(period, state.isCurrentPeriod),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(6.dp))
+            WeChatGroupLabel(period.planTitle())
+            WeChatGroup {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    PeriodKindRow(
+                        kind = period.kind,
+                        onSelect = viewModel::setPeriodKind
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    PeriodPager(
+                        period = period,
+                        isCurrent = state.isCurrentPeriod,
+                        onPrev = { viewModel.shiftPeriod(-1) },
+                        onNext = { viewModel.shiftPeriod(1) },
+                        onToday = viewModel::goToCurrentPeriod,
+                        onPick = viewModel::goToPeriod
+                    )
+                    Text(
+                        planHint(period, state.isCurrentPeriod),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                    )
+                }
+                WeChatInsetDivider()
                 if (state.periodGoals.isEmpty()) {
                     Text(
                         emptyPlanText(period.kind),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
                     )
                 } else {
-                    state.periodGoals.forEach { goal ->
+                    state.periodGoals.forEachIndexed { index, goal ->
                         PeriodGoalRow(
                             goal = goal,
                             showParts = supportsParts || goal.targetParts > 1,
-                            onPlaceToday = { viewModel.placeGoalIntoToday(goal.id) },
+                            onPlaceToday = {
+                                placeTodayGoalId = goal.id
+                                placeDurationMin = 0
+                                placeCustomDuration = ""
+                            },
                             onBump = { viewModel.bumpGoalProgress(goal.id, it) },
                             onDone = { viewModel.markGoalDone(goal.id) },
                             onDrop = { viewModel.dropGoal(goal.id) },
                             onDelete = { viewModel.deleteGoal(goal.id) }
                         )
-                        Spacer(Modifier.height(4.dp))
+                        if (index < state.periodGoals.lastIndex) WeChatInsetDivider()
                     }
                 }
                 if (state.periodGoals.size < state.goalLimit) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WeChatInsetDivider()
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            OutlinedTextField(
+                            BasicTextField(
                                 value = draftGoal,
                                 onValueChange = { draftGoal = it },
-                                modifier = Modifier.weight(1f),
                                 singleLine = true,
-                                placeholder = { Text(goalPlaceholder(period.kind)) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.secondary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 15.sp
                                 ),
-                                shape = RoundedCornerShape(12.dp)
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                decorationBox = { inner ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (draftGoal.isEmpty()) {
+                                            Text(
+                                                "写一条计划",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                }
                             )
-                            if (supportsParts) {
-                                OutlinedTextField(
-                                    value = draftParts,
-                                    onValueChange = { draftParts = it.filter(Char::isDigit).take(3) },
-                                    modifier = Modifier.width(72.dp),
-                                    singleLine = true,
-                                    placeholder = { Text("份") },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = MaterialTheme.colorScheme.secondary,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                    ),
-                                    shape = RoundedCornerShape(12.dp)
+                            BasicTextField(
+                                value = draftParts,
+                                onValueChange = {
+                                    draftParts = it.filter(Char::isDigit).take(3)
+                                },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 15.sp,
+                                    textAlign = TextAlign.Center
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .width(48.dp)
+                                    .heightIn(min = 36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                                decorationBox = { inner ->
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (draftParts.isEmpty()) {
+                                            Text(
+                                                "份",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                }
+                            )
+                            Text(
+                                "添加",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        if (draftGoal.isNotBlank()) {
+                                            val parts = draftParts.toIntOrNull() ?: 1
+                                            viewModel.addPeriodGoal(
+                                                title = draftGoal,
+                                                targetParts = parts,
+                                                track = draftTrack
+                                            )
+                                            draftGoal = ""
+                                        }
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 8.dp)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            goalTracks.forEach { track ->
+                                FilterChip(
+                                    selected = draftTrack == track,
+                                    onClick = { draftTrack = track },
+                                    label = {
+                                        Text(
+                                            TraineeRepository.trackLabel(track),
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    },
+                                    modifier = Modifier.height(30.dp)
                                 )
                             }
-                            TextButton(
-                                onClick = {
-                                    if (draftGoal.isNotBlank()) {
-                                        val parts = draftParts.toIntOrNull() ?: 1
-                                        viewModel.addPeriodGoal(draftGoal, targetParts = parts)
-                                        draftGoal = ""
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                modifier = Modifier.height(36.dp)
-                            ) { Text("添加") }
-                        }
-                        if (supportsParts) {
-                            Text(
-                                "份数：拆成几份记进度，如读 12 本书填 12，完成一本点 +",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
                 }
             }
 
-            SoftCard(contentPadding = 12.dp) {
-                SectionLabel(period.rhythmTitle())
-                Spacer(Modifier.height(4.dp))
-                val review = state.periodReview
-                Text(
-                    buildString {
-                        append(period.label())
-                        append(" · 有练 ${review.activeDays} 天")
-                        if (review.strengthDays != review.activeDays) {
-                            append("（力量 ${review.strengthDays}）")
-                        }
-                        append(" · ${review.totalDone} 件")
+            placeTodayGoalId?.let { goalId ->
+                PlaceTodayDurationDialog(
+                    onDismiss = { placeTodayGoalId = null },
+                    durationMin = placeDurationMin,
+                    customDuration = placeCustomDuration,
+                    onDurationMin = {
+                        placeDurationMin = it
+                        placeCustomDuration = ""
                     },
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    onCustomDuration = {
+                        placeCustomDuration = it.filter(Char::isDigit).take(3)
+                        if (placeCustomDuration.isNotBlank()) placeDurationMin = -1
+                    },
+                    onConfirm = {
+                        val minutes = when {
+                            placeCustomDuration.isNotBlank() ->
+                                placeCustomDuration.toIntOrNull() ?: 0
+                            placeDurationMin < 0 -> 0
+                            else -> placeDurationMin
+                        }
+                        viewModel.placeGoalIntoToday(goalId, minutes.coerceAtLeast(0) * 60)
+                        placeTodayGoalId = null
+                    }
                 )
-                Spacer(Modifier.height(4.dp))
-                val progressDenom = when (period.kind) {
-                    PlanPeriodKind.MONTH ->
-                        review.monthReview?.month?.lengthOfMonth()?.coerceAtLeast(1) ?: 30
-                    PlanPeriodKind.QUARTER -> 90
-                    PlanPeriodKind.YEAR -> 365
-                }
-                LinearProgressIndicator(
-                    progress = { (review.activeDays.toFloat() / progressDenom).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-                )
-                if (state.isCurrentPeriod && period.kind == PlanPeriodKind.MONTH) {
-                    Spacer(Modifier.height(4.dp))
+            }
+
+            WeChatGroupLabel(period.rhythmTitle())
+            WeChatGroup {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    val review = state.periodReview
                     Text(
-                        "本周 力量${state.weekStrengthCount} · 轻轨${state.weekLightCount} · 清单${state.weekChecklistDone}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall
+                        buildString {
+                            append(period.label())
+                            append(" · 有练 ${review.activeDays} 天")
+                            if (review.strengthDays != review.activeDays) {
+                                append("（力量 ${review.strengthDays}）")
+                            }
+                            append(" · ${review.totalDone} 件")
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
                     )
-                }
-                when (period.kind) {
-                    PlanPeriodKind.MONTH -> {
-                        val monthReview = review.monthReview
-                        if (monthReview != null) {
+                    Spacer(Modifier.height(6.dp))
+                    val progressDenom = when (period.kind) {
+                        PlanPeriodKind.MONTH ->
+                            review.monthReview?.month?.lengthOfMonth()?.coerceAtLeast(1) ?: 30
+                        PlanPeriodKind.QUARTER -> 90
+                        PlanPeriodKind.YEAR -> 365
+                    }
+                    LinearProgressIndicator(
+                        progress = { (review.activeDays.toFloat() / progressDenom).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                    )
+                    if (state.isCurrentPeriod && period.kind == PlanPeriodKind.MONTH) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "本周 力量${state.weekStrengthCount} · 轻轨${state.weekLightCount} · 清单${state.weekChecklistDone}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    when (period.kind) {
+                        PlanPeriodKind.MONTH -> {
+                            val monthReview = review.monthReview
+                            if (monthReview != null) {
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    "每日完成",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                MonthBars(
+                                    review = monthReview,
+                                    selected = state.selectedDay,
+                                    onSelect = viewModel::selectDay
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    "月历",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                MonthCalendar(
+                                    review = monthReview,
+                                    selected = state.selectedDay,
+                                    onSelect = viewModel::selectDay
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                SelectedDayDetail(activity = monthReview.activityOn(state.selectedDay))
+                            }
+                        }
+                        PlanPeriodKind.QUARTER,
+                        PlanPeriodKind.YEAR -> {
                             Spacer(Modifier.height(10.dp))
-                            SectionLabel("每日完成")
-                            Spacer(Modifier.height(4.dp))
-                            MonthBars(
-                                review = monthReview,
-                                selected = state.selectedDay,
-                                onSelect = viewModel::selectDay
+                            Text(
+                                "各月力量天数",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(10.dp))
-                            SectionLabel("月历")
-                            Spacer(Modifier.height(4.dp))
-                            MonthCalendar(
-                                review = monthReview,
-                                selected = state.selectedDay,
-                                onSelect = viewModel::selectDay
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "柱高=该月力量练过几天 · 点月进入日节奏",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(6.dp))
-                            SelectedDayDetail(activity = monthReview.activityOn(state.selectedDay))
+                            Spacer(Modifier.height(4.dp))
+                            MonthBucketBars(
+                                buckets = review.monthBuckets,
+                                valueOf = { it.strengthDays },
+                                onSelectMonth = viewModel::goToMonth
+                            )
                         }
                     }
-                    PlanPeriodKind.QUARTER,
-                    PlanPeriodKind.YEAR -> {
-                        Spacer(Modifier.height(10.dp))
-                        SectionLabel("各月力量天数")
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "柱高=该月力量练过几天 · 点月进入日节奏",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        MonthBucketBars(
-                            buckets = review.monthBuckets,
-                            valueOf = { it.strengthDays },
-                            onSelectMonth = viewModel::goToMonth
-                        )
-                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "时长占比",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TrackSharePie(shares = review.trackShares, emptyHint = emptyShareText(period.kind))
                 }
-                Spacer(Modifier.height(10.dp))
-                SectionLabel("时长占比")
-                Spacer(Modifier.height(4.dp))
-                TrackSharePie(shares = review.trackShares, emptyHint = emptyShareText(period.kind))
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
         }
     }
 
@@ -393,7 +527,7 @@ fun ProfileScreen(
 
 private fun planHint(period: PlanPeriod, isCurrent: Boolean): String = when {
     !isCurrent -> "在看 ${period.label()} · 可回看计划与节奏。"
-    period.kind == PlanPeriodKind.MONTH -> "写 3～5 条想做的事，再拆进今天清单。"
+    period.kind == PlanPeriodKind.MONTH -> "写 3～5 条，填份数与轨道，再拆进今天清单。"
     period.kind == PlanPeriodKind.QUARTER -> "写本季重点，填份数后用 +/− 记进度（如 3/3）。"
     else -> "写年度方向，填份数后用 +/− 记进度（如读 12 本 → 1/12）。"
 }
@@ -402,12 +536,6 @@ private fun emptyPlanText(kind: PlanPeriodKind): String = when (kind) {
     PlanPeriodKind.MONTH -> "这个月还没有计划"
     PlanPeriodKind.QUARTER -> "这个季度还没有计划"
     PlanPeriodKind.YEAR -> "这一年还没有计划"
-}
-
-private fun goalPlaceholder(kind: PlanPeriodKind): String = when (kind) {
-    PlanPeriodKind.MONTH -> "例如：算法一周三次"
-    PlanPeriodKind.QUARTER -> "例如：本季稳住力量节奏"
-    PlanPeriodKind.YEAR -> "例如：今年读完 12 本书"
 }
 
 private fun emptyShareText(kind: PlanPeriodKind): String = when (kind) {
@@ -623,6 +751,57 @@ private fun PeriodPickerDialog(
 }
 
 @Composable
+private fun PlaceTodayDurationDialog(
+    onDismiss: () -> Unit,
+    durationMin: Int,
+    customDuration: String,
+    onDurationMin: (Int) -> Unit,
+    onCustomDuration: (String) -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("放进今天清单") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "选本次时长。像「阅读 20 页」可不设时长（只勾选或不限时）。",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(0, 10, 15, 25).forEach { min ->
+                        FilterChip(
+                            selected = durationMin == min && customDuration.isBlank(),
+                            onClick = { onDurationMin(min) },
+                            label = {
+                                Text(if (min == 0) "不限时/只勾选" else "${min}分")
+                            }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = customDuration,
+                    onValueChange = onCustomDuration,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("自定义分钟") },
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("放进今天") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
 private fun PeriodGoalRow(
     goal: PeriodGoalEntity,
     showParts: Boolean,
@@ -639,31 +818,37 @@ private fun PeriodGoalRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                goal.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                textDecoration = when {
-                    done || dropped -> TextDecoration.LineThrough
-                    else -> null
-                },
-                color = if (done || dropped) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    goal.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    textDecoration = when {
+                        done || dropped -> TextDecoration.LineThrough
+                        else -> null
+                    },
+                    color = if (done || dropped) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+                goal.track?.let {
+                    Text(
+                        TraineeRepository.trackLabel(it),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             if (showParts) {
                 Text(
                     "$progress/$target",
@@ -969,12 +1154,21 @@ private fun DayCell(
 private fun SelectedDayDetail(activity: DayActivity) {
     SectionLabel("${activity.day.monthValue}月${activity.day.dayOfMonth}日")
     Spacer(Modifier.height(6.dp))
-    if (activity.titles.isEmpty()) {
+    if (activity.entries.isEmpty()) {
         Text("这一天还没有完成记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
     } else {
-        activity.titles.forEach { title ->
-            Text("· $title", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(2.dp))
+        activity.entries.forEach { entry ->
+            Text("· ${entry.title}", style = MaterialTheme.typography.bodyMedium)
+            if (entry.note.isNotBlank()) {
+                Text(
+                    entry.note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 14.dp, top = 1.dp, bottom = 2.dp)
+                )
+            } else {
+                Spacer(Modifier.height(2.dp))
+            }
         }
     }
 }

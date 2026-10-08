@@ -116,4 +116,37 @@ interface WorkoutSessionDao {
 
     @Query("DELETE FROM exercise_logs WHERE id = :logId")
     suspend fun deleteLog(logId: Long)
+
+    @Query("SELECT * FROM workout_sessions ORDER BY id ASC")
+    suspend fun getAllSessions(): List<WorkoutSessionEntity>
+
+    @Query("SELECT * FROM exercise_logs ORDER BY id ASC")
+    suspend fun getAllLogs(): List<ExerciseLogEntity>
+
+    @Query("SELECT * FROM exercise_sets ORDER BY id ASC")
+    suspend fun getAllSets(): List<ExerciseSetEntity>
+
+    @Query("SELECT * FROM set_band_cross_ref")
+    suspend fun getAllSetBands(): List<SetBandCrossRef>
+
+    @Query("DELETE FROM set_band_cross_ref")
+    suspend fun deleteAllSetBands()
+
+    @Query("DELETE FROM exercise_sets")
+    suspend fun deleteAllSets()
+
+    @Query("DELETE FROM exercise_logs")
+    suspend fun deleteAllLogs()
+
+    @Query("DELETE FROM workout_sessions")
+    suspend fun deleteAllSessions()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSessions(sessions: List<WorkoutSessionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLogsReplace(logs: List<ExerciseLogEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSets(sets: List<ExerciseSetEntity>)
 }

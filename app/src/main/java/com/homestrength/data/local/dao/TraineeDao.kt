@@ -129,4 +129,46 @@ interface TraineeDao {
 
     @Query("SELECT * FROM reward_redemptions ORDER BY redeemedAt DESC LIMIT :limit")
     fun observeRedemptions(limit: Int = 20): Flow<List<RewardRedemptionEntity>>
+
+    @Query("SELECT * FROM power_list_items ORDER BY id ASC")
+    suspend fun getAllPowerItems(): List<PowerListItemEntity>
+
+    @Query("SELECT * FROM light_practices ORDER BY id ASC")
+    suspend fun getAllLightPractices(): List<LightPracticeEntity>
+
+    @Query("SELECT * FROM period_goals ORDER BY id ASC")
+    suspend fun getAllPeriodGoals(): List<PeriodGoalEntity>
+
+    @Query("SELECT * FROM reward_redemptions ORDER BY id ASC")
+    suspend fun getAllRedemptions(): List<RewardRedemptionEntity>
+
+    @Query("DELETE FROM power_list_items")
+    suspend fun deleteAllPowerItems()
+
+    @Query("DELETE FROM light_practices")
+    suspend fun deleteAllLightPractices()
+
+    @Query("DELETE FROM period_goals")
+    suspend fun deleteAllPeriodGoals()
+
+    @Query("DELETE FROM reward_redemptions")
+    suspend fun deleteAllRedemptions()
+
+    @Query("DELETE FROM rewards")
+    suspend fun deleteAllRewards()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPowerItems(items: List<PowerListItemEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLightPractices(items: List<LightPracticeEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPeriodGoals(items: List<PeriodGoalEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRewards(items: List<RewardEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRedemptions(items: List<RewardRedemptionEntity>)
 }

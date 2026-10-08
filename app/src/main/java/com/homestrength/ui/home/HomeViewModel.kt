@@ -102,9 +102,9 @@ class HomeViewModel(
         initialValue = HomeUiState()
     )
 
-    fun addPowerItem(title: String, track: PracticeTrack?) {
+    fun addPowerItem(title: String, track: PracticeTrack?, targetDurationSeconds: Int = 0) {
         viewModelScope.launch {
-            traineeRepository.addPowerItem(title, track)
+            traineeRepository.addPowerItem(title, track, targetDurationSeconds)
         }
     }
 

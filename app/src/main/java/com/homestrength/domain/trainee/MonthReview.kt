@@ -10,12 +10,20 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 
+data class DayEntry(
+    val title: String,
+    val note: String = "",
+    val track: PracticeTrack? = null
+)
+
 data class DayActivity(
     val day: LocalDate,
     val doneCount: Int,
     val tracks: Set<PracticeTrack>,
-    val titles: List<String>
-)
+    val entries: List<DayEntry>
+) {
+    val titles: List<String> get() = entries.map { it.title }
+}
 
 data class TrackShare(
     val track: PracticeTrack,
@@ -63,36 +71,78 @@ object MonthReviewBuilder {
         strengthDone: List<WorkoutSessionEntity>,
         zone: ZoneId = ZoneId.systemDefault()
     ): MonthReview {
-        val byDay = linkedMapOf<LocalDate, MutableList<Pair<PracticeTrack?, String>>>()
-        val covered = mutableSetOf<Pair<LocalDate, String>>()
+        val byDay = linkedMapOf<LocalDate, MutableList<DayEntry>>()
 
-        fun key(day: LocalDate, track: PracticeTrack?, title: String) =
-            day to "${track?.name.orEmpty()}|$title"
-
-        fun add(day: LocalDate, track: PracticeTrack?, title: String) {
+        fun add(day: LocalDate, entry: DayEntry) {
             if (day.year != month.year || day.month != month.month) return
-            val k = key(day, track, title)
-            if (!covered.add(k)) return
-            byDay.getOrPut(day) { mutableListOf() }.add(track to title)
+            val list = byDay.getOrPut(day) { mutableListOf() }
+            val dup = list.any {
+                it.track == entry.track && it.title == entry.title && it.note == entry.note
+            }
+            if (!dup) list.add(entry)
         }
 
         powerDone.forEach { item ->
             val day = runCatching { LocalDate.parse(item.dayKey) }.getOrNull() ?: return@forEach
-            add(day, item.track?.let(TraineeRepository::canonicalTrack), item.title)
+            add(
+                day,
+                DayEntry(
+                    title = item.title,
+                    note = item.note.trim(),
+                    track = item.track?.let(TraineeRepository::canonicalTrack)
+                )
+            )
         }
 
         lightDone.forEach { practice ->
             val day = Instant.ofEpochMilli(practice.startedAt).atZone(zone).toLocalDate()
+            if (day.year != month.year || day.month != month.month) return@forEach
             val track = TraineeRepository.canonicalTrack(practice.track)
             val label = TraineeRepository.trackLabel(track)
-            val already = byDay[day].orEmpty().any { it.first == track }
-            if (!already) add(day, track, label)
+            val note = practice.note.trim()
+            val noteTitle = practice.noteTitle.trim()
+            val list = byDay.getOrPut(day) { mutableListOf() }
+            val matchIndex = list.indexOfFirst { entry ->
+                entry.track == track && (
+                    (noteTitle.isNotBlank() && entry.title == noteTitle) ||
+                        entry.title == label ||
+                        (noteTitle.isBlank() && entry.note.isBlank())
+                    )
+            }
+            if (matchIndex >= 0) {
+                val existing = list[matchIndex]
+                val mergedNote = when {
+                    note.isNotBlank() -> note
+                    existing.note.isNotBlank() -> existing.note
+                    noteTitle.isNotBlank() && noteTitle != existing.title -> noteTitle
+                    else -> existing.note
+                }
+                list[matchIndex] = existing.copy(note = mergedNote)
+            } else {
+                add(
+                    day,
+                    DayEntry(
+                        title = noteTitle.ifBlank { label },
+                        note = note,
+                        track = track
+                    )
+                )
+            }
         }
 
         strengthDone.forEach { session ->
             val day = Instant.ofEpochMilli(session.dateTime).atZone(zone).toLocalDate()
-            val already = byDay[day].orEmpty().any { it.first == PracticeTrack.STRENGTH }
-            if (!already) add(day, PracticeTrack.STRENGTH, "力量 · ${session.workoutType.name}")
+            val list = byDay[day].orEmpty()
+            val already = list.any { it.track == PracticeTrack.STRENGTH }
+            if (!already) {
+                add(
+                    day,
+                    DayEntry(
+                        title = "力量 · ${session.workoutType.name}",
+                        track = PracticeTrack.STRENGTH
+                    )
+                )
+            }
         }
 
         val days = (1..month.lengthOfMonth()).map { d ->
@@ -101,8 +151,8 @@ object MonthReviewBuilder {
             DayActivity(
                 day = day,
                 doneCount = entries.size,
-                tracks = entries.mapNotNull { it.first }.toSet(),
-                titles = entries.map { it.second }
+                tracks = entries.mapNotNull { it.track }.toSet(),
+                entries = entries
             )
         }
 

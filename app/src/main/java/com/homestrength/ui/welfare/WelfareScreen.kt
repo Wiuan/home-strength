@@ -51,8 +51,9 @@ import com.homestrength.data.local.entity.RewardRedemptionEntity
 import com.homestrength.data.repository.TraineeRepository
 import com.homestrength.ui.components.CompactPageHeader
 import com.homestrength.ui.components.GoldWash
-import com.homestrength.ui.components.SectionLabel
-import com.homestrength.ui.components.SoftCard
+import com.homestrength.ui.components.WeChatGroup
+import com.homestrength.ui.components.WeChatGroupLabel
+import com.homestrength.ui.components.WeChatInsetDivider
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -135,7 +136,7 @@ fun WelfareScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             CompactPageHeader(
                 title = "福利社 · ${profile.coins} 币",
@@ -143,146 +144,158 @@ fun WelfareScreen(
                 onBack = onBack
             )
 
-            SoftCard(contentPadding = 12.dp) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SectionLabel("基金花销")
-                    TextButton(
-                        onClick = {
-                            draftRate = profile.coinsPerYuan.toString()
-                            showRateEditor = true
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
+            WeChatGroupLabel("基金花销")
+            WeChatGroup {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("${profile.coinsPerYuan}币/元")
+                        Text(
+                            "记一笔",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        TextButton(
+                            onClick = {
+                                draftRate = profile.coinsPerYuan.toString()
+                                showRateEditor = true
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("${profile.coinsPerYuan}币/元")
+                        }
                     }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("服装基金", "旅游基金", "其他").forEach { label ->
-                        FilterChip(
-                            selected = fundLabel == label,
-                            onClick = { fundLabel = label },
-                            label = { Text(label.removeSuffix("基金").ifBlank { label }) },
-                            colors = chipColors,
-                            modifier = Modifier.height(32.dp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("服装基金", "旅游基金", "其他").forEach { label ->
+                            FilterChip(
+                                selected = fundLabel == label,
+                                onClick = { fundLabel = label },
+                                label = {
+                                    Text(
+                                        label.removeSuffix("基金").ifBlank { label },
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                },
+                                colors = chipColors,
+                                modifier = Modifier.height(30.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = fundItem,
+                            onValueChange = { fundItem = it },
+                            modifier = Modifier.weight(1.2f),
+                            singleLine = true,
+                            placeholder = { Text("卫衣") },
+                            colors = fieldColors,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        OutlinedTextField(
+                            value = fundYuan,
+                            onValueChange = { fundYuan = it.filter(Char::isDigit).take(6) },
+                            modifier = Modifier.weight(0.8f),
+                            singleLine = true,
+                            placeholder = { Text("元") },
+                            colors = fieldColors,
+                            shape = RoundedCornerShape(10.dp)
                         )
                     }
-                }
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = fundItem,
-                        onValueChange = { fundItem = it },
-                        modifier = Modifier.weight(1.2f),
-                        singleLine = true,
-                        placeholder = { Text("卫衣") },
-                        colors = fieldColors,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    OutlinedTextField(
-                        value = fundYuan,
-                        onValueChange = { fundYuan = it.filter(Char::isDigit).take(6) },
-                        modifier = Modifier.weight(0.8f),
-                        singleLine = true,
-                        placeholder = { Text("元") },
-                        colors = fieldColors,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-                val yuan = fundYuan.toIntOrNull() ?: 0
-                val cost = yuan * profile.coinsPerYuan.coerceAtLeast(1)
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        if (yuan > 0) "扣 $cost 币" else "填品名与金额",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                val err = traineeRepository.redeemFundPurchase(
-                                    fundLabel = fundLabel,
-                                    itemName = fundItem,
-                                    yuan = yuan
-                                )
-                                if (err == null) {
-                                    fundItem = ""
-                                    fundYuan = ""
+                    val yuan = fundYuan.toIntOrNull() ?: 0
+                    val cost = yuan * profile.coinsPerYuan.coerceAtLeast(1)
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (yuan > 0) "扣 $cost 币" else "填品名与金额",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    val err = traineeRepository.redeemFundPurchase(
+                                        fundLabel = fundLabel,
+                                        itemName = fundItem,
+                                        yuan = yuan
+                                    )
+                                    if (err == null) {
+                                        fundItem = ""
+                                        fundYuan = ""
+                                    }
+                                    onMessage(err ?: "已记账并扣币")
                                 }
-                                onMessage(err ?: "已记账并扣币")
-                            }
-                        },
-                        enabled = yuan > 0 && fundItem.isNotBlank(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) { Text("确认") }
+                            },
+                            enabled = yuan > 0 && fundItem.isNotBlank(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) { Text("确认") }
+                    }
                 }
             }
 
-            SoftCard(contentPadding = 12.dp) {
+            WeChatGroupLabel("即时奖励")
+            WeChatGroup {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SectionLabel("即时奖励")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(
-                            selected = sortMode == RewardSortMode.Custom,
-                            onClick = { sortMode = RewardSortMode.Custom },
-                            label = { Text("排") },
-                            colors = chipColors,
-                            modifier = Modifier.height(28.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        FilterChip(
-                            selected = sortMode == RewardSortMode.CostAsc,
-                            onClick = { sortMode = RewardSortMode.CostAsc },
-                            label = { Text("↑") },
-                            colors = chipColors,
-                            modifier = Modifier.height(28.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        FilterChip(
-                            selected = sortMode == RewardSortMode.CostDesc,
-                            onClick = { sortMode = RewardSortMode.CostDesc },
-                            label = { Text("↓") },
-                            colors = chipColors,
-                            modifier = Modifier.height(28.dp)
-                        )
-                        TextButton(
-                            onClick = { openEditor(null) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) { Text("+") }
-                    }
+                    FilterChip(
+                        selected = sortMode == RewardSortMode.Custom,
+                        onClick = { sortMode = RewardSortMode.Custom },
+                        label = { Text("排", style = MaterialTheme.typography.labelMedium) },
+                        colors = chipColors,
+                        modifier = Modifier.height(28.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    FilterChip(
+                        selected = sortMode == RewardSortMode.CostAsc,
+                        onClick = { sortMode = RewardSortMode.CostAsc },
+                        label = { Text("↑", style = MaterialTheme.typography.labelMedium) },
+                        colors = chipColors,
+                        modifier = Modifier.height(28.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    FilterChip(
+                        selected = sortMode == RewardSortMode.CostDesc,
+                        onClick = { sortMode = RewardSortMode.CostDesc },
+                        label = { Text("↓", style = MaterialTheme.typography.labelMedium) },
+                        colors = chipColors,
+                        modifier = Modifier.height(28.dp)
+                    )
+                    TextButton(
+                        onClick = { openEditor(null) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) { Text("+") }
                 }
-                Spacer(Modifier.height(4.dp))
+                WeChatInsetDivider()
                 if (displayed.isEmpty()) {
                     Text(
                         "还没有奖励",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
                     )
                 } else {
                     val latestOrder = rememberUpdatedState(customOrder)
                     val latestRewards = rememberUpdatedState(rewards)
                     displayed.forEachIndexed { index, reward ->
                         key(reward.id) {
-                            if (index > 0) Spacer(Modifier.height(6.dp))
                             val isDragging = draggingId == reward.id
                             val rowModifier = if (sortMode == RewardSortMode.Custom) {
                                 Modifier
@@ -295,7 +308,7 @@ fun WelfareScreen(
                                         RoundedCornerShape(10.dp)
                                     )
                                     .pointerInput(reward.id) {
-                                        val rowHeightPx = 72f
+                                        val rowHeightPx = 64f
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = {
                                                 draggingId = reward.id
@@ -350,22 +363,22 @@ fun WelfareScreen(
                                     }
                                 )
                             }
+                            if (index < displayed.lastIndex) WeChatInsetDivider()
                         }
                     }
                 }
             }
 
             if (redemptions.isNotEmpty()) {
-                SoftCard(contentPadding = 12.dp) {
-                    SectionLabel("最近兑现")
-                    Spacer(Modifier.height(6.dp))
+                WeChatGroupLabel("最近兑现")
+                WeChatGroup {
                     redemptions.forEachIndexed { index, item ->
-                        if (index > 0) Spacer(Modifier.height(4.dp))
                         RedemptionRow(item)
+                        if (index < redemptions.lastIndex) WeChatInsetDivider()
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
         }
     }
 
@@ -465,71 +478,57 @@ private fun RewardRow(
     onDelete: () -> Unit
 ) {
     val canAfford = coins >= reward.cost
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                RoundedCornerShape(10.dp)
-            )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            if (showDragHint) {
-                Text(
-                    "⋮",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    reward.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    "${reward.cost} 币",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+        if (showDragHint) {
+            Text(
+                "⋮",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge
+            )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                reward.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+            Text(
+                "${reward.cost} 币",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        TextButton(
+            onClick = onEdit,
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            modifier = Modifier.height(28.dp)
+        ) { Text("改") }
+        TextButton(
+            onClick = onDelete,
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            modifier = Modifier.height(28.dp)
+        ) { Text("删") }
+        Button(
+            onClick = onRedeem,
+            enabled = canAfford,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            modifier = Modifier.height(28.dp),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         ) {
-            TextButton(
-                onClick = onEdit,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
-            ) { Text("改") }
-            TextButton(
-                onClick = onDelete,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
-            ) { Text("删") }
-            Button(
-                onClick = onRedeem,
-                enabled = canAfford,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                modifier = Modifier.height(30.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    disabledContainerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                Text(if (canAfford) "兑" else "差")
-            }
+            Text(if (canAfford) "兑" else "差")
         }
     }
 }
@@ -540,14 +539,17 @@ private fun RedemptionRow(item: RewardRedemptionEntity) {
         .withZone(ZoneId.systemDefault())
         .format(Instant.ofEpochMilli(item.redeemedAt))
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
                 item.title,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1
             )
             Text(
                 date,

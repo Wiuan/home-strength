@@ -71,6 +71,39 @@ class MonthReviewTest {
     }
 
     @Test
+    fun dayDetail_mergesLightPracticeNoteOntoChecklistTitle() {
+        val day = LocalDate.of(2026, 10, 8)
+        val millis = day.atStartOfDay(zone).toInstant().toEpochMilli()
+        val review = MonthReviewBuilder.build(
+            month = month,
+            powerDone = listOf(
+                PowerListItemEntity(
+                    dayKey = day.toString(),
+                    title = "阅读 10 分钟",
+                    track = PracticeTrack.CULTIVATION,
+                    status = PowerItemStatus.DONE
+                )
+            ),
+            lightDone = listOf(
+                LightPracticeEntity(
+                    track = PracticeTrack.CULTIVATION,
+                    startedAt = millis + 60_000,
+                    durationSeconds = 600,
+                    note = "看完第三章",
+                    noteTitle = "阅读 10 分钟",
+                    completed = true
+                )
+            ),
+            strengthDone = emptyList(),
+            zone = zone
+        )
+        val entries = review.activityOn(day).entries
+        assertEquals(1, entries.size)
+        assertEquals("阅读 10 分钟", entries.first().title)
+        assertEquals("看完第三章", entries.first().note)
+    }
+
+    @Test
     fun strengthDurationFallsBackWhenSpanMissing() {
         val millis = LocalDate.of(2026, 10, 1).atStartOfDay(zone).toInstant().toEpochMilli()
         val review = MonthReviewBuilder.build(
