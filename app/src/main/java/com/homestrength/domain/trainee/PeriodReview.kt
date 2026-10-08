@@ -8,7 +8,9 @@ data class MonthBucket(
     val activeDays: Int,
     val totalDone: Int,
     /** Distinct days with a strength session in this month. */
-    val strengthDays: Int = 0
+    val strengthDays: Int = 0,
+    /** Distinct days with an early-sleep check-in in this month. */
+    val sleepDays: Int = 0
 )
 
 data class PeriodReview(
@@ -20,7 +22,9 @@ data class PeriodReview(
     val activeDays: Int,
     val totalDone: Int,
     /** Distinct days with strength practice across the period. */
-    val strengthDays: Int = 0
+    val strengthDays: Int = 0,
+    /** Distinct days with early-sleep check-in across the period. */
+    val sleepDays: Int = 0
 ) {
     val totalShareSeconds: Int get() = trackShares.sumOf { it.seconds }
 }
@@ -34,7 +38,8 @@ object PeriodReviewBuilder {
             trackShares = emptyList(),
             activeDays = 0,
             totalDone = 0,
-            strengthDays = 0
+            strengthDays = 0,
+            sleepDays = 0
         )
 
     fun fromMonths(period: PlanPeriod, months: List<MonthReview>): PeriodReview {
@@ -43,7 +48,8 @@ object PeriodReviewBuilder {
                 month = it.month,
                 activeDays = it.activeDays,
                 totalDone = it.totalDone,
-                strengthDays = it.days.count { day -> PracticeTrack.STRENGTH in day.tracks }
+                strengthDays = it.days.count { day -> PracticeTrack.STRENGTH in day.tracks },
+                sleepDays = it.days.count { day -> PracticeTrack.SLEEP in day.tracks }
             )
         }
         val shares = months
@@ -65,7 +71,8 @@ object PeriodReviewBuilder {
             trackShares = shares,
             activeDays = months.sumOf { it.activeDays },
             totalDone = months.sumOf { it.totalDone },
-            strengthDays = buckets.sumOf { it.strengthDays }
+            strengthDays = buckets.sumOf { it.strengthDays },
+            sleepDays = buckets.sumOf { it.sleepDays }
         )
     }
 }

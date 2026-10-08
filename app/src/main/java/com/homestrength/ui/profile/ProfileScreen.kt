@@ -100,6 +100,7 @@ fun ProfileScreen(
     val supportsParts = true
     val goalTracks = listOf(
         PracticeTrack.LIFE,
+        PracticeTrack.SLEEP,
         PracticeTrack.CULTIVATION,
         PracticeTrack.ALGORITHM,
         PracticeTrack.VOCAL,
@@ -205,12 +206,12 @@ fun ProfileScreen(
 
             WeChatGroupLabel(period.planTitle())
             WeChatGroup {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                     PeriodKindRow(
                         kind = period.kind,
                         onSelect = viewModel::setPeriodKind
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     PeriodPager(
                         period = period,
                         isCurrent = state.isCurrentPeriod,
@@ -223,7 +224,7 @@ fun ProfileScreen(
                         planHint(period, state.isCurrentPeriod),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                 }
                 WeChatInsetDivider()
@@ -232,7 +233,7 @@ fun ProfileScreen(
                         emptyPlanText(period.kind),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 } else {
                     state.periodGoals.forEachIndexed { index, goal ->
@@ -240,9 +241,14 @@ fun ProfileScreen(
                             goal = goal,
                             showParts = supportsParts || goal.targetParts > 1,
                             onPlaceToday = {
-                                placeTodayGoalId = goal.id
-                                placeDurationMin = 0
-                                placeCustomDuration = ""
+                                if (goal.track == PracticeTrack.SLEEP) {
+                                    // Early sleep is a daily check-in, not a timed practice.
+                                    viewModel.placeGoalIntoToday(goal.id, 0)
+                                } else {
+                                    placeTodayGoalId = goal.id
+                                    placeDurationMin = 0
+                                    placeCustomDuration = ""
+                                }
                             },
                             onBump = { viewModel.bumpGoalProgress(goal.id, it) },
                             onDone = { viewModel.markGoalDone(goal.id) },
@@ -255,8 +261,8 @@ fun ProfileScreen(
                 if (state.periodGoals.size < state.goalLimit) {
                     WeChatInsetDivider()
                     Column(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -353,14 +359,30 @@ fun ProfileScreen(
                             goalTracks.forEach { track ->
                                 FilterChip(
                                     selected = draftTrack == track,
-                                    onClick = { draftTrack = track },
+                                    onClick = {
+                                        val previousDefault =
+                                            draftTrack?.let(TraineeRepository::trackLabel).orEmpty()
+                                        draftTrack = track
+                                        val nextTitle = TraineeRepository.trackLabel(track)
+                                        if (draftGoal.isBlank() || draftGoal == previousDefault) {
+                                            draftGoal = nextTitle
+                                        }
+                                        if (track == PracticeTrack.SLEEP) {
+                                            // Year/quarter: weeks; month: target nights.
+                                            draftParts = when (period.kind) {
+                                                PlanPeriodKind.YEAR -> "12"
+                                                PlanPeriodKind.QUARTER -> "12"
+                                                PlanPeriodKind.MONTH -> "20"
+                                            }
+                                        }
+                                    },
                                     label = {
                                         Text(
                                             TraineeRepository.trackLabel(track),
                                             style = MaterialTheme.typography.labelMedium
                                         )
                                     },
-                                    modifier = Modifier.height(30.dp)
+                                    modifier = Modifier.height(28.dp)
                                 )
                             }
                         }
@@ -402,8 +424,16 @@ fun ProfileScreen(
                         buildString {
                             append(period.label())
                             append(" · 有练 ${review.activeDays} 天")
-                            if (review.strengthDays != review.activeDays) {
-                                append("（力量 ${review.strengthDays}）")
+                            val extras = buildList {
+                                if (review.strengthDays > 0 && review.strengthDays != review.activeDays) {
+                                    add("力量 ${review.strengthDays}")
+                                }
+                                if (review.sleepDays > 0) {
+                                    add("早睡 ${review.sleepDays}")
+                                }
+                            }
+                            if (extras.isNotEmpty()) {
+                                append("（${extras.joinToString(" · ")}）")
                             }
                             append(" · ${review.totalDone} 件")
                         },
@@ -526,10 +556,10 @@ fun ProfileScreen(
 }
 
 private fun planHint(period: PlanPeriod, isCurrent: Boolean): String = when {
-    !isCurrent -> "在看 ${period.label()} · 可回看计划与节奏。"
-    period.kind == PlanPeriodKind.MONTH -> "写 3～5 条，填份数与轨道，再拆进今天清单。"
-    period.kind == PlanPeriodKind.QUARTER -> "写本季重点，填份数后用 +/− 记进度（如 3/3）。"
-    else -> "写年度方向，填份数后用 +/− 记进度（如读 12 本 → 1/12）。"
+    !isCurrent -> "在看 ${period.label()} · 可回看。"
+    period.kind == PlanPeriodKind.MONTH -> "写几条，填份数，再拆进今天。"
+    period.kind == PlanPeriodKind.QUARTER -> "写本季重点，用 +/− 记进度。"
+    else -> "写年度方向，用 +/− 记进度。"
 }
 
 private fun emptyPlanText(kind: PlanPeriodKind): String = when (kind) {
@@ -552,7 +582,7 @@ private fun PeriodKindRow(
     val chipColors = FilterChipDefaults.filterChipColors(
         selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         listOf(
             PlanPeriodKind.MONTH to "月",
             PlanPeriodKind.QUARTER to "季",
@@ -561,9 +591,11 @@ private fun PeriodKindRow(
             FilterChip(
                 selected = kind == k,
                 onClick = { onSelect(k) },
-                label = { Text(label) },
+                label = {
+                    Text(label, style = MaterialTheme.typography.labelMedium)
+                },
                 colors = chipColors,
-                modifier = Modifier.height(30.dp)
+                modifier = Modifier.height(28.dp)
             )
         }
     }
@@ -587,11 +619,11 @@ private fun PeriodPager(
         TextButton(
             onClick = onPrev,
             contentPadding = PaddingValues(0.dp),
-            modifier = Modifier.height(28.dp)
+            modifier = Modifier.height(24.dp)
         ) { Text("‹") }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 period.label(),
@@ -602,20 +634,20 @@ private fun PeriodPager(
             TextButton(
                 onClick = { showPicker = true },
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
+                modifier = Modifier.height(24.dp)
             ) { Text("选") }
             if (!isCurrent) {
                 TextButton(
                     onClick = onToday,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier.height(24.dp)
                 ) { Text("今天") }
             }
         }
         TextButton(
             onClick = onNext,
             contentPadding = PaddingValues(0.dp),
-            modifier = Modifier.height(28.dp)
+            modifier = Modifier.height(24.dp)
         ) { Text("›") }
     }
     if (showPicker) {
@@ -815,126 +847,124 @@ private fun PeriodGoalRow(
     val dropped = goal.status == PeriodGoalStatus.DROPPED
     val target = goal.targetParts.coerceAtLeast(1)
     val progress = goal.doneParts.coerceIn(0, target)
+    val muted = done || dropped
+    val titleColor = if (muted) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val trackLabel = goal.track?.let(TraineeRepository::trackLabel)
+    val showBar = showParts && target > 1 && !dropped
+    val showActiveActions = goal.status == PeriodGoalStatus.ACTIVE
+    val showDonePartsActions = done && showParts && target > 1
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    goal.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    textDecoration = when {
-                        done || dropped -> TextDecoration.LineThrough
-                        else -> null
-                    },
-                    color = if (done || dropped) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
+            Text(
+                buildString {
+                    append(goal.title)
+                    if (!trackLabel.isNullOrBlank() && trackLabel != goal.title) {
+                        append(" · ")
+                        append(trackLabel)
                     }
-                )
-                goal.track?.let {
-                    Text(
-                        TraineeRepository.trackLabel(it),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+                },
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                textDecoration = if (muted) TextDecoration.LineThrough else null,
+                color = titleColor
+            )
             if (showParts) {
                 Text(
                     "$progress/$target",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
         }
-        if (showParts && target > 1 && !dropped) {
-            Spacer(Modifier.height(4.dp))
+        if (showBar) {
+            Spacer(Modifier.height(3.dp))
             LinearProgressIndicator(
                 progress = { progress.toFloat() / target },
-                modifier = Modifier.fillMaxWidth().height(4.dp),
+                modifier = Modifier.fillMaxWidth().height(2.dp),
                 color = MaterialTheme.colorScheme.secondary,
                 trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
             )
         }
-        if (goal.status == PeriodGoalStatus.ACTIVE || (done && showParts && target > 1)) {
+        if (showActiveActions || showDonePartsActions) {
             Row(
+                modifier = Modifier.padding(top = 1.dp),
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (showParts && target > 1) {
-                    TextButton(
-                        onClick = { onBump(-1) },
+                    CompactGoalAction(
+                        label = "−",
                         enabled = progress > 0,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) { Text("−") }
-                    TextButton(
-                        onClick = { onBump(1) },
+                        onClick = { onBump(-1) }
+                    )
+                    CompactGoalAction(
+                        label = "+",
                         enabled = progress < target,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) { Text("+") }
+                        onClick = { onBump(1) }
+                    )
                 }
-                if (goal.status == PeriodGoalStatus.ACTIVE) {
-                    TextButton(
-                        onClick = onPlaceToday,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) { Text("今天") }
+                if (showActiveActions) {
+                    CompactGoalAction(label = "今天", onClick = onPlaceToday)
                     if (!showParts || target <= 1) {
-                        TextButton(
-                            onClick = onDone,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) { Text("完成") }
+                        CompactGoalAction(label = "完成", onClick = onDone)
                     }
-                    TextButton(
-                        onClick = onDrop,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) { Text("放下") }
+                    CompactGoalAction(label = "放下", onClick = onDrop)
                 } else {
                     Text(
                         "已完成",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 6.dp)
+                        modifier = Modifier.padding(start = 4.dp, end = 2.dp)
                     )
-                    TextButton(
-                        onClick = onDelete,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) { Text("删") }
+                    CompactGoalAction(label = "删", onClick = onDelete)
                 }
             }
         } else {
             Row(
+                modifier = Modifier.padding(top = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     if (done) "已完成" else "已放下",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                TextButton(
-                    onClick = onDelete,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
-                ) { Text("删") }
+                CompactGoalAction(label = "删", onClick = onDelete)
             }
         }
+    }
+}
+
+@Composable
+private fun CompactGoalAction(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+        modifier = Modifier.height(24.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
 
