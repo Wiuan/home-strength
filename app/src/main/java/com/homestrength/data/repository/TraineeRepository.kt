@@ -19,6 +19,7 @@ import com.homestrength.domain.trainee.PlanPeriod
 import com.homestrength.domain.trainee.PlanPeriodKind
 import com.homestrength.domain.trainee.TraineeGrade
 import com.homestrength.domain.trainee.TraineeRewards
+import com.homestrength.domain.trainee.isTimedLightTrack
 import com.homestrength.domain.trainee.secondsToPracticedMinutes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -75,36 +76,45 @@ class TraineeRepository(
         val day = todayKey()
         val item = traineeDao.getPowerList(day).firstOrNull { it.id == id } ?: return
         if (item.status == PowerItemStatus.DONE) {
-            if (item.rewardFans > 0 || item.rewardCoins > 0) {
-                award(-item.rewardFans, -item.rewardCoins, energyDelta = 0)
-            }
+            clawBackPowerItemRewards(item)
             if (item.track == PracticeTrack.SLEEP) {
                 undoEarlySleepState()
             }
             if (item.track == PracticeTrack.MEDITATION) {
                 undoMeditationEnergy()
             }
+            clearLinkedLightPractice(item.linkedPracticeId)
             traineeDao.updatePowerItem(
                 item.copy(
                     status = PowerItemStatus.PENDING,
                     rewardFans = 0,
                     rewardCoins = 0,
+                    practicedMinutes = 0,
+                    linkedPracticeId = 0,
                     completedViaPractice = false
                 )
             )
         } else {
-            val profile = getProfile()
-            val fans = profile.checklistFans
-            val coins = profile.checklistCoins
-            award(fans, coins, energyDelta = 0)
-            traineeDao.updatePowerItem(
-                item.copy(
-                    status = PowerItemStatus.DONE,
-                    rewardFans = fans,
-                    rewardCoins = coins,
-                    completedViaPractice = false
+            val track = item.track?.let { canonicalTrack(it) }
+            val targetSec = item.targetDurationSeconds
+            // Timed light row + planned minutes: checkbox counts as practiced that long
+            // (duration lives on light_practices → 时间占比).
+            if (track != null && track.isTimedLightTrack() && targetSec > 0) {
+                completeTimedLightViaChecklist(item, track, targetSec)
+            } else {
+                val profile = getProfile()
+                val fans = profile.checklistFans
+                val coins = profile.checklistCoins
+                award(fans, coins, energyDelta = 0)
+                traineeDao.updatePowerItem(
+                    item.copy(
+                        status = PowerItemStatus.DONE,
+                        rewardFans = fans,
+                        rewardCoins = coins,
+                        completedViaPractice = false
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -112,17 +122,83 @@ class TraineeRepository(
         val day = todayKey()
         val item = traineeDao.getPowerList(day).firstOrNull { it.id == id }
         if (item != null && item.status == PowerItemStatus.DONE) {
-            if (item.rewardFans > 0 || item.rewardCoins > 0) {
-                award(-item.rewardFans, -item.rewardCoins, energyDelta = 0)
-            }
+            clawBackPowerItemRewards(item)
             if (item.track == PracticeTrack.SLEEP) {
                 undoEarlySleepState()
             }
             if (item.track == PracticeTrack.MEDITATION) {
                 undoMeditationEnergy()
             }
+            clearLinkedLightPractice(item.linkedPracticeId)
         }
         traineeDao.deletePowerItem(id)
+    }
+
+    /**
+     * Quick-complete a timed light checklist row: write [targetSeconds] into a completed
+     * light practice so month/period duration shares include it.
+     */
+    private suspend fun completeTimedLightViaChecklist(
+        item: PowerListItemEntity,
+        track: PracticeTrack,
+        targetSeconds: Int
+    ) {
+        val profile = getProfile()
+        val fans = profile.lightFans
+        val coins = profile.lightCoins
+        val seconds = targetSeconds.coerceAtLeast(0)
+        val minutes = secondsToPracticedMinutes(seconds)
+        val now = System.currentTimeMillis()
+        val existing = if (item.linkedPracticeId > 0L) {
+            traineeDao.getLightPractice(item.linkedPracticeId)
+        } else {
+            null
+        }
+        val practiceId = if (existing != null && !existing.completed) {
+            traineeDao.updateLightPractice(
+                existing.copy(
+                    durationSeconds = seconds,
+                    completed = true,
+                    fansEarned = fans,
+                    coinsEarned = coins
+                )
+            )
+            existing.id
+        } else {
+            traineeDao.insertLightPractice(
+                LightPracticeEntity(
+                    track = track,
+                    startedAt = now,
+                    durationSeconds = seconds,
+                    completed = true,
+                    fansEarned = fans,
+                    coinsEarned = coins
+                )
+            )
+        }
+        award(fans, coins, energyDelta = -10)
+        traineeDao.updatePowerItem(
+            item.copy(
+                status = PowerItemStatus.DONE,
+                rewardFans = fans,
+                rewardCoins = coins,
+                practicedMinutes = minutes.coerceAtLeast(item.practicedMinutes),
+                linkedPracticeId = practiceId,
+                completedViaPractice = true
+            )
+        )
+    }
+
+    private suspend fun clawBackPowerItemRewards(item: PowerListItemEntity) {
+        if (item.rewardFans == 0 && item.rewardCoins == 0) return
+        // Light/timer path spent 10 energy; restore it when retracting.
+        val energyDelta = if (item.completedViaPractice) 10 else 0
+        award(-item.rewardFans, -item.rewardCoins, energyDelta = energyDelta)
+    }
+
+    private suspend fun clearLinkedLightPractice(linkedPracticeId: Long) {
+        if (linkedPracticeId <= 0L) return
+        traineeDao.deleteLightPractice(linkedPracticeId)
     }
 
     suspend fun startLightPractice(track: PracticeTrack, powerListItemId: Long = 0L): Long {

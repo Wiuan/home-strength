@@ -68,6 +68,11 @@ class MonthReviewTest {
         assertTrue(review.trackShares.any { it.track == PracticeTrack.ALGORITHM && it.seconds == 1200 })
         assertTrue(review.trackShares.any { it.track == PracticeTrack.STRENGTH && it.seconds == 35 * 60 })
         assertTrue(review.trackShares.any { it.track == PracticeTrack.LIFE && it.seconds == 5 * 60 })
+        val dayShares = review.activityOn(day).trackShares
+        assertTrue(dayShares.any { it.track == PracticeTrack.ALGORITHM && it.seconds == 1200 })
+        assertTrue(dayShares.any { it.track == PracticeTrack.STRENGTH && it.seconds == 35 * 60 })
+        assertTrue(dayShares.any { it.track == PracticeTrack.LIFE && it.seconds == 5 * 60 })
+        assertTrue(review.activityOn(day.plusDays(1)).trackShares.isEmpty())
     }
 
     @Test

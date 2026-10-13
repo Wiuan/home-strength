@@ -20,7 +20,9 @@ data class DayActivity(
     val day: LocalDate,
     val doneCount: Int,
     val tracks: Set<PracticeTrack>,
-    val entries: List<DayEntry>
+    val entries: List<DayEntry>,
+    /** Timed track shares for this calendar day (feeds day-scoped pie). */
+    val trackShares: List<TrackShare> = emptyList()
 ) {
     val titles: List<String> get() = entries.map { it.title }
 }
@@ -145,33 +147,40 @@ object MonthReviewBuilder {
             }
         }
 
-        val days = (1..month.lengthOfMonth()).map { d ->
-            val day = month.atDay(d)
-            val entries = byDay[day].orEmpty()
-            DayActivity(
-                day = day,
-                doneCount = entries.size,
-                tracks = entries.mapNotNull { it.track }.toSet(),
-                entries = entries
-            )
-        }
+        val monthSeconds = linkedMapOf<PracticeTrack, Int>()
+        val monthCounts = linkedMapOf<PracticeTrack, Int>()
+        val daySeconds = linkedMapOf<LocalDate, MutableMap<PracticeTrack, Int>>()
+        val dayCounts = linkedMapOf<LocalDate, MutableMap<PracticeTrack, Int>>()
 
-        val seconds = linkedMapOf<PracticeTrack, Int>()
-        val counts = linkedMapOf<PracticeTrack, Int>()
-
-        fun bump(track: PracticeTrack, sec: Int, n: Int = 1) {
+        fun bump(day: LocalDate, track: PracticeTrack, sec: Int, n: Int = 1) {
             if (sec <= 0 && n <= 0) return
-            seconds[track] = (seconds[track] ?: 0) + sec.coerceAtLeast(0)
-            counts[track] = (counts[track] ?: 0) + n
+            if (day.year != month.year || day.month != month.month) return
+            val s = sec.coerceAtLeast(0)
+            monthSeconds[track] = (monthSeconds[track] ?: 0) + s
+            monthCounts[track] = (monthCounts[track] ?: 0) + n
+            val secMap = daySeconds.getOrPut(day) { mutableMapOf() }
+            val cntMap = dayCounts.getOrPut(day) { mutableMapOf() }
+            secMap[track] = (secMap[track] ?: 0) + s
+            cntMap[track] = (cntMap[track] ?: 0) + n
         }
+
+        fun sharesOf(
+            seconds: Map<PracticeTrack, Int>,
+            counts: Map<PracticeTrack, Int>
+        ): List<TrackShare> = seconds.entries
+            .filter { it.value > 0 }
+            .map { (track, sec) -> TrackShare(track, sec, counts[track] ?: 0) }
+            .sortedByDescending { it.seconds }
 
         lightDone.forEach { practice ->
             val track = TraineeRepository.canonicalTrack(practice.track)
             if (track == PracticeTrack.SLEEP || track == PracticeTrack.MEDITATION) return@forEach
-            bump(track, practice.durationSeconds.coerceAtLeast(0))
+            val day = Instant.ofEpochMilli(practice.startedAt).atZone(zone).toLocalDate()
+            bump(day, track, practice.durationSeconds.coerceAtLeast(0))
         }
         strengthDone.forEach { session ->
-            bump(PracticeTrack.STRENGTH, strengthDurationSeconds(session))
+            val day = Instant.ofEpochMilli(session.dateTime).atZone(zone).toLocalDate()
+            bump(day, PracticeTrack.STRENGTH, strengthDurationSeconds(session))
         }
         // Life checklist ticks that weren't also timed light practices
         val lightLifeDays = lightDone
@@ -183,21 +192,28 @@ object MonthReviewBuilder {
             .forEach { item ->
                 val day = runCatching { LocalDate.parse(item.dayKey) }.getOrNull() ?: return@forEach
                 if (day !in lightLifeDays) {
-                    bump(PracticeTrack.LIFE, LIFE_CHECKLIST_SECONDS)
+                    bump(day, PracticeTrack.LIFE, LIFE_CHECKLIST_SECONDS)
                 }
             }
 
-        val shares = seconds.entries
-            .filter { it.value > 0 }
-            .map { (track, sec) -> TrackShare(track, sec, counts[track] ?: 0) }
-            .sortedByDescending { it.seconds }
+        val days = (1..month.lengthOfMonth()).map { d ->
+            val day = month.atDay(d)
+            val entries = byDay[day].orEmpty()
+            DayActivity(
+                day = day,
+                doneCount = entries.size,
+                tracks = entries.mapNotNull { it.track }.toSet(),
+                entries = entries,
+                trackShares = sharesOf(daySeconds[day].orEmpty(), dayCounts[day].orEmpty())
+            )
+        }
 
         return MonthReview(
             month = month,
             days = days,
             activeDays = days.count { it.doneCount > 0 },
             totalDone = days.sumOf { it.doneCount },
-            trackShares = shares
+            trackShares = sharesOf(monthSeconds, monthCounts)
         )
     }
 }

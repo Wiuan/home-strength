@@ -4,9 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.remember
@@ -28,28 +30,34 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val scope = rememberCoroutineScope()
-                // Avoid nesting Material3 Scaffold here: screen Scaffolds + early content
-                // returns previously crashed Compose SlotTable (index=-5).
+                // Full-bleed background under status bar, then inset content —
+                // avoids a mismatched strip above the first card.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .safeDrawingPadding()
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
-                    HomeStrengthNavHost(
-                        navController = navController,
-                        repository = app.container.repository,
-                        traineeRepository = app.container.traineeRepository,
-                        modifier = Modifier.fillMaxSize(),
-                        onError = { message ->
-                            scope.launch {
-                                snackbarHostState.showSnackbar(message)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .safeDrawingPadding()
+                    ) {
+                        HomeStrengthNavHost(
+                            navController = navController,
+                            repository = app.container.repository,
+                            traineeRepository = app.container.traineeRepository,
+                            modifier = Modifier.fillMaxSize(),
+                            onError = { message ->
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(message)
+                                }
                             }
-                        }
-                    )
-                    SnackbarHost(
-                        hostState = snackbarHostState,
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    )
+                        )
+                        SnackbarHost(
+                            hostState = snackbarHostState,
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        )
+                    }
                 }
             }
         }

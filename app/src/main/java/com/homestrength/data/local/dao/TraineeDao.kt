@@ -52,6 +52,9 @@ interface TraineeDao {
     @Query("SELECT * FROM light_practices WHERE id = :id")
     suspend fun getLightPractice(id: Long): LightPracticeEntity?
 
+    @Query("DELETE FROM light_practices WHERE id = :id")
+    suspend fun deleteLightPractice(id: Long)
+
     @Query("SELECT * FROM light_practices WHERE completed = 1 ORDER BY startedAt DESC LIMIT :limit")
     fun observeRecentLightPractices(limit: Int = 20): Flow<List<LightPracticeEntity>>
 

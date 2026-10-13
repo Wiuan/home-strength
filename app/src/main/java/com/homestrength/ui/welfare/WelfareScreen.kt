@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -497,7 +498,8 @@ private fun RewardRow(
                 reward.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 "${reward.cost} 币",
@@ -549,7 +551,8 @@ private fun RedemptionRow(item: RewardRedemptionEntity) {
             Text(
                 item.title,
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 date,

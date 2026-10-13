@@ -12,25 +12,31 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/** Cream / navy / gold — closer to a gentle “trainee file” look than gym green. */
+/**
+ * Soft dopamine stage (refs: fitness archives + wellness cards):
+ * neutral off-white canvas, white cards, purple CTA — color pops on accents only.
+ */
 object Palette {
-    val Paper = Color(0xFFF6F1E8)
-    val PaperDeep = Color(0xFFEDE4D4)
-    val Card = Color(0xFFFFFBF6)
-    val Ink = Color(0xFF1B2A41)
-    val InkSoft = Color(0xFF5C6B7A)
-    val Gold = Color(0xFFC4A35A)
-    val GoldDeep = Color(0xFFA4843A)
-    val GoldSoft = Color(0xFFF3E6C8)
-    val Line = Color(0xFFE4D8C4)
-    val Caution = Color(0xFFC9A227)
-    val Fatigue = Color(0xFFB85C4A)
+    /** App canvas — cool off-white, almost neutral (not mint/lilac wash). */
+    val Paper = Color(0xFFF5F6FA)
+    val PaperDeep = Color(0xFFEEEFF4)
+    /** Cards — pure white, like the reference mockups. */
+    val Card = Color(0xFFFFFFFF)
+    val Ink = Color(0xFF1C1C1E)
+    val InkSoft = Color(0xFF6B7280)
+    /** Accents — soft purple CTA (legacy Gold* names kept for call sites). */
+    val Gold = Color(0xFFA78BFA)
+    val GoldDeep = Color(0xFF6C5CE7)
+    val GoldSoft = Color(0xFFEDE9FE)
+    val Line = Color(0xFFE5E7EB)
+    val Caution = Color(0xFFFFB020)
+    val Fatigue = Color(0xFFFF5A7A)
 
-    val NightBg = Color(0xFF16130F)
-    val NightCard = Color(0xFF221E18)
-    val NightInk = Color(0xFFF3EDE3)
-    val NightInkSoft = Color(0xFFC4B8A6)
-    val NightGold = Color(0xFFD4B56A)
+    val NightBg = Color(0xFF121216)
+    val NightCard = Color(0xFF1C1C22)
+    val NightInk = Color(0xFFF4F4F5)
+    val NightInkSoft = Color(0xFFA1A1AA)
+    val NightGold = Color(0xFFA78BFA)
 }
 
 private val LightColors = lightColorScheme(
@@ -50,17 +56,17 @@ private val LightColors = lightColorScheme(
 
 private val DarkColors = darkColorScheme(
     primary = Palette.NightGold,
-    onPrimary = Color(0xFF2A210C),
+    onPrimary = Color(0xFF1A1230),
     secondary = Palette.NightGold,
-    tertiary = Color(0xFFE0A090),
+    tertiary = Color(0xFFFF8AD8),
     background = Palette.NightBg,
     surface = Palette.NightCard,
     onBackground = Palette.NightInk,
     onSurface = Palette.NightInk,
-    surfaceVariant = Color(0xFF2C2720),
+    surfaceVariant = Color(0xFF2A2A32),
     onSurfaceVariant = Palette.NightInkSoft,
-    outline = Color(0xFF3F392F),
-    outlineVariant = Color(0xFF3F392F)
+    outline = Color(0xFF3F3F46),
+    outlineVariant = Color(0xFF3F3F46)
 )
 
 private val AppTypography = Typography(
@@ -133,5 +139,5 @@ object StatusColors {
     val complete = Palette.GoldDeep
     val caution = Palette.Caution
     val fatigue = Palette.Fatigue
-    val completeDark = Palette.Gold
+    val completeDark = Palette.NightGold
 }

@@ -74,7 +74,6 @@ import com.homestrength.ui.components.SectionLabel
 import com.homestrength.ui.components.WeChatGroup
 import com.homestrength.ui.components.WeChatGroupLabel
 import com.homestrength.ui.components.WeChatInsetDivider
-import com.homestrength.ui.theme.Palette
 import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.min
@@ -516,13 +515,11 @@ fun ProfileScreen(
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Text(
-                        "时长占比",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    DurationShareSection(
+                        period = period,
+                        review = review,
+                        selectedDay = state.selectedDay
                     )
-                    Spacer(Modifier.height(4.dp))
-                    TrackSharePie(shares = review.trackShares, emptyHint = emptyShareText(period.kind))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -572,6 +569,82 @@ private fun emptyShareText(kind: PlanPeriodKind): String = when (kind) {
     PlanPeriodKind.MONTH -> "这个月还没有可统计的时长"
     PlanPeriodKind.QUARTER -> "这个季度还没有可统计的时长"
     PlanPeriodKind.YEAR -> "这一年还没有可统计的时长"
+}
+
+@Composable
+private fun DurationShareSection(
+    period: PlanPeriod,
+    review: PeriodReview,
+    selectedDay: LocalDate
+) {
+    var wholePeriod by remember(period.key) {
+        mutableStateOf(period.kind != PlanPeriodKind.MONTH)
+    }
+    LaunchedEffect(selectedDay, period.key) {
+        // Tapping a day focuses the pie on that day (month view).
+        if (period.kind == PlanPeriodKind.MONTH) wholePeriod = false
+    }
+    val monthReview = review.monthReview
+    val shares = when {
+        period.kind == PlanPeriodKind.MONTH && !wholePeriod && monthReview != null ->
+            monthReview.activityOn(selectedDay).trackShares
+        else -> review.trackShares
+    }
+    val scopeLabel = when {
+        period.kind == PlanPeriodKind.MONTH && !wholePeriod ->
+            "${selectedDay.monthValue}月${selectedDay.dayOfMonth}日"
+        period.kind == PlanPeriodKind.MONTH -> "全月"
+        else -> period.label()
+    }
+    val emptyHint = when {
+        period.kind == PlanPeriodKind.MONTH && !wholePeriod ->
+            "这一天还没有可统计的时长"
+        else -> emptyShareText(period.kind)
+    }
+    val totalSec = shares.sumOf { it.seconds }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "时长占比 · $scopeLabel",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (totalSec > 0) {
+            Text(
+                formatShareDuration(totalSec),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    if (period.kind == PlanPeriodKind.MONTH) {
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val chipColors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
+            FilterChip(
+                selected = !wholePeriod,
+                onClick = { wholePeriod = false },
+                label = { Text("本日") },
+                colors = chipColors,
+                modifier = Modifier.height(30.dp)
+            )
+            FilterChip(
+                selected = wholePeriod,
+                onClick = { wholePeriod = true },
+                label = { Text("全月") },
+                colors = chipColors,
+                modifier = Modifier.height(30.dp)
+            )
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    TrackSharePie(shares = shares, emptyHint = emptyHint)
 }
 
 @Composable
@@ -1280,14 +1353,15 @@ private fun formatShareDuration(totalSeconds: Int): String {
     }
 }
 
+/** Dopamine palette for duration pie / day dots — bright, distinct slices. */
 private fun trackColor(track: PracticeTrack): Color = when (track) {
-    PracticeTrack.STRENGTH -> Palette.Fatigue
-    PracticeTrack.ALGORITHM -> Palette.Ink
-    PracticeTrack.VOCAL -> Color(0xFF6B8FBF)
+    PracticeTrack.STRENGTH -> Color(0xFFFF5A7A) // 热粉
+    PracticeTrack.ALGORITHM -> Color(0xFF6B7CFF) // 电蓝紫
+    PracticeTrack.VOCAL -> Color(0xFFFF8AD8) // 亮玫
     PracticeTrack.CULTIVATION,
     PracticeTrack.READING,
-    PracticeTrack.CALLIGRAPHY -> Palette.GoldDeep
-    PracticeTrack.LIFE -> Palette.InkSoft
-    PracticeTrack.SLEEP -> Color(0xFF7A6B9A)
-    PracticeTrack.MEDITATION -> Color(0xFF5FA88A)
+    PracticeTrack.CALLIGRAPHY -> Color(0xFFFFD166) // 柠黄
+    PracticeTrack.LIFE -> Color(0xFF4ECDC4) // 薄荷绿
+    PracticeTrack.SLEEP -> Color(0xFFB794F6) // 薰衣草
+    PracticeTrack.MEDITATION -> Color(0xFF34D399) // 翠绿
 }
