@@ -294,10 +294,18 @@ class SettingsViewModel(
         _lightTracks.value = lightTrackCatalog.load()
     }
 
-    fun saveLightTracks(tracks: List<LightTrackDef>) {
+    fun saveLightTracks(tracks: List<LightTrackDef>, announce: Boolean = true) {
         lightTrackCatalog.save(tracks)
         _lightTracks.value = lightTrackCatalog.load()
-        viewModelScope.launch { _messages.emit("轻轨轨道已保存") }
+        if (announce) {
+            viewModelScope.launch { _messages.emit("轻轨轨道已保存") }
+        }
+    }
+
+    /** Persist display order for home / checklist chips. */
+    fun reorderLightTracks(tracks: List<LightTrackDef>) {
+        saveLightTracks(tracks, announce = false)
+        viewModelScope.launch { _messages.emit("轨道顺序已保存") }
     }
 
     /**

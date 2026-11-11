@@ -7,16 +7,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +29,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,25 +38,38 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.roundToInt
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.TraineeProfileEntity
 import com.homestrength.data.track.LightTrackDef
@@ -378,7 +393,8 @@ fun SettingsScreen(
             onUpdate = { id, label, minutes, fans, coins ->
                 viewModel.updateLightTrack(id, label, minutes, fans, coins)
             },
-            onDelete = viewModel::deleteLightTrack
+            onDelete = viewModel::deleteLightTrack,
+            onReorder = viewModel::reorderLightTracks
         )
     }
 
@@ -466,7 +482,8 @@ private fun LightTrackEditorDialog(
     onDismiss: () -> Unit,
     onAdd: (label: String, timed: Boolean, defaultMinutes: Int, fans: Int, coins: Int) -> Unit,
     onUpdate: (id: String, label: String, defaultMinutes: Int, fans: Int, coins: Int) -> Unit,
-    onDelete: (id: String) -> Unit
+    onDelete: (id: String) -> Unit,
+    onReorder: (List<LightTrackDef>) -> Unit
 ) {
     var newLabel by remember { mutableStateOf("") }
     var newTimed by remember { mutableStateOf(true) }
@@ -478,9 +495,23 @@ private fun LightTrackEditorDialog(
     var editMinutes by remember { mutableStateOf("10") }
     var editFans by remember { mutableStateOf("") }
     var editCoins by remember { mutableStateOf("") }
+    var ordered by remember { mutableStateOf(tracks) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val scroll = rememberScrollState()
+    val latestOrdered = rememberUpdatedState(ordered)
+    val latestTracks = rememberUpdatedState(tracks)
+
+    LaunchedEffect(tracks) {
+        if (draggingId == null) ordered = tracks
+    }
+
+    fun moveDragged(from: Int, to: Int) {
+        if (from == to || from < 0 || to < 0) return
+        ordered = ordered.toMutableList().apply { add(to, removeAt(from)) }
+    }
 
     fun effectiveFans(def: LightTrackDef): Int =
         if (def.rewardFans >= 0) def.rewardFans
@@ -529,183 +560,311 @@ private fun LightTrackEditorDialog(
         )
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 580.dp)
+                .heightIn(max = 560.dp)
                 .imePadding()
         ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Text("管理练习轨道", style = MaterialTheme.typography.titleMedium)
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text("管理练习轨道", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "先填下面新建；列表可改奖励。内置项不能删。",
+                    "新建在上；长按拖排序（主页同步）；点「改」调粉币。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
                 )
 
                 Column(
                     modifier = Modifier
                         .weight(1f, fill = false)
-                        .verticalScroll(scroll)
+                        .verticalScroll(scroll),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // New track first so "添加" is not buried under the list / keyboard.
-                    WeChatGroupLabel("新建同级轨道")
+                    Text(
+                        "新建",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                    )
                     WeChatGroup {
-                        RoomTextRow("名称", newLabel) { newLabel = it.take(12) }
+                        CompactTrackField("名称", newLabel, wide = true) { newLabel = it.take(12) }
                         WeChatInsetDivider()
-                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
-                                "怎么练",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                "方式",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.width(40.dp)
                             )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                FilterChip(
-                                    selected = newTimed,
-                                    onClick = {
-                                        newTimed = true
-                                        newFans = defaultLightFans.toString()
-                                        newCoins = defaultLightCoins.toString()
-                                    },
-                                    label = { Text("计时练习") }
-                                )
-                                FilterChip(
-                                    selected = !newTimed,
-                                    onClick = {
-                                        newTimed = false
-                                        newFans = defaultChecklistFans.toString()
-                                        newCoins = defaultChecklistCoins.toString()
-                                    },
-                                    label = { Text("只勾选") }
-                                )
-                            }
+                            FilterChip(
+                                selected = newTimed,
+                                onClick = {
+                                    newTimed = true
+                                    newFans = defaultLightFans.toString()
+                                    newCoins = defaultLightCoins.toString()
+                                },
+                                label = { Text("计时", style = MaterialTheme.typography.labelMedium) },
+                                modifier = Modifier.height(28.dp)
+                            )
+                            FilterChip(
+                                selected = !newTimed,
+                                onClick = {
+                                    newTimed = false
+                                    newFans = defaultChecklistFans.toString()
+                                    newCoins = defaultChecklistCoins.toString()
+                                },
+                                label = { Text("勾选", style = MaterialTheme.typography.labelMedium) },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                        WeChatInsetDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
                             if (newTimed) {
-                                Spacer(Modifier.height(6.dp))
-                                RoomTextRow("默认分钟", newMinutes) {
-                                    newMinutes = it.filter(Char::isDigit).take(3)
-                                }
+                                CompactTrackField(
+                                    "分钟",
+                                    newMinutes,
+                                    digits = 3,
+                                    modifier = Modifier.weight(1f)
+                                ) { newMinutes = it }
                             }
-                            Spacer(Modifier.height(4.dp))
-                            RoomTextRow("粉丝奖励", newFans) {
-                                newFans = it.filter(Char::isDigit).take(3)
-                            }
-                            RoomTextRow("星光币", newCoins) {
-                                newCoins = it.filter(Char::isDigit).take(2)
-                            }
+                            CompactTrackField(
+                                "粉丝",
+                                newFans,
+                                digits = 3,
+                                modifier = Modifier.weight(1f)
+                            ) { newFans = it }
+                            CompactTrackField(
+                                "币",
+                                newCoins,
+                                digits = 2,
+                                modifier = Modifier.weight(1f)
+                            ) { newCoins = it }
                         }
                     }
 
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                    Text(
+                        "已有 · 长按拖动",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp, top = 4.dp)
                     )
-
-                    WeChatGroupLabel("现有轨道")
                     WeChatGroup {
-                        tracks.forEachIndexed { index, def ->
-                            if (editingId == def.id) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    RoomTextRow("名称", editLabel) { editLabel = it.take(12) }
-                                    if (def.backing != PracticeTrack.LIFE) {
-                                        RoomTextRow("默认分钟", editMinutes) {
-                                            editMinutes = it.filter(Char::isDigit).take(3)
+                        ordered.forEachIndexed { index, def ->
+                            key(def.id) {
+                                val isDragging = draggingId == def.id
+                                val rowModifier = if (editingId == null) {
+                                    Modifier
+                                        .zIndex(if (isDragging) 1f else 0f)
+                                        .offset {
+                                            IntOffset(0, if (isDragging) dragOffsetY.roundToInt() else 0)
                                         }
-                                    }
-                                    RoomTextRow("粉丝奖励", editFans) {
-                                        editFans = it.filter(Char::isDigit).take(3)
-                                    }
-                                    RoomTextRow("星光币", editCoins) {
-                                        editCoins = it.filter(Char::isDigit).take(2)
-                                    }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        TextButton(
-                                            onClick = {
-                                                focusManager.clearFocus(force = true)
-                                                keyboard?.hide()
-                                                onUpdate(
-                                                    def.id,
-                                                    editLabel,
-                                                    editMinutes.toIntOrNull() ?: def.defaultMinutes,
-                                                    editFans.toIntOrNull() ?: effectiveFans(def),
-                                                    editCoins.toIntOrNull() ?: effectiveCoins(def)
-                                                )
-                                                editingId = null
-                                            }
-                                        ) { Text("保存") }
-                                        TextButton(
-                                            onClick = {
-                                                focusManager.clearFocus(force = true)
-                                                keyboard?.hide()
-                                                editingId = null
-                                            }
-                                        ) { Text("取消") }
-                                    }
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(def.label, style = MaterialTheme.typography.bodyLarge)
-                                        Text(
-                                            trackModeHint(def, effectiveFans(def), effectiveCoins(def)) +
-                                                if (def.locked) " · 内置" else "",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        .shadow(
+                                            if (isDragging) 6.dp else 0.dp,
+                                            RoundedCornerShape(8.dp)
                                         )
-                                    }
-                                    TextButton(
-                                        onClick = {
-                                            editingId = def.id
-                                            editLabel = def.label
-                                            editMinutes = def.defaultMinutes.toString()
-                                            editFans = effectiveFans(def).toString()
-                                            editCoins = effectiveCoins(def).toString()
+                                        .pointerInput(def.id) {
+                                            val rowHeightPx = 48f
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    draggingId = def.id
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDragCancel = {
+                                                    draggingId = null
+                                                    dragOffsetY = 0f
+                                                    ordered = latestTracks.value
+                                                },
+                                                onDragEnd = {
+                                                    val next = latestOrdered.value
+                                                    draggingId = null
+                                                    dragOffsetY = 0f
+                                                    onReorder(next)
+                                                },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragOffsetY += dragAmount.y
+                                                    val order = latestOrdered.value
+                                                    val from = order.indexOfFirst { it.id == def.id }
+                                                    if (from < 0) return@detectDragGesturesAfterLongPress
+                                                    val shift = (dragOffsetY / rowHeightPx).toInt()
+                                                    val to = (from + shift).coerceIn(0, order.lastIndex)
+                                                    if (to != from) {
+                                                        moveDragged(from, to)
+                                                        dragOffsetY -= (to - from) * rowHeightPx
+                                                    }
+                                                }
+                                            )
                                         }
-                                    ) { Text("改") }
-                                    if (!def.locked) {
-                                        TextButton(onClick = { onDelete(def.id) }) { Text("删") }
+                                } else {
+                                    Modifier
+                                }
+                                Box(modifier = rowModifier) {
+                                    if (editingId == def.id) {
+                                        Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                            CompactTrackField("名称", editLabel, wide = true) {
+                                                editLabel = it.take(12)
+                                            }
+                                            Row(modifier = Modifier.fillMaxWidth()) {
+                                                if (def.backing != PracticeTrack.LIFE) {
+                                                    CompactTrackField(
+                                                        "分钟",
+                                                        editMinutes,
+                                                        digits = 3,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) { editMinutes = it }
+                                                }
+                                                CompactTrackField(
+                                                    "粉丝",
+                                                    editFans,
+                                                    digits = 3,
+                                                    modifier = Modifier.weight(1f)
+                                                ) { editFans = it }
+                                                CompactTrackField(
+                                                    "币",
+                                                    editCoins,
+                                                    digits = 2,
+                                                    modifier = Modifier.weight(1f)
+                                                ) { editCoins = it }
+                                            }
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(end = 4.dp),
+                                                horizontalArrangement = Arrangement.End
+                                            ) {
+                                                TextButton(
+                                                    onClick = {
+                                                        focusManager.clearFocus(force = true)
+                                                        keyboard?.hide()
+                                                        onUpdate(
+                                                            def.id,
+                                                            editLabel,
+                                                            editMinutes.toIntOrNull()
+                                                                ?: def.defaultMinutes,
+                                                            editFans.toIntOrNull()
+                                                                ?: effectiveFans(def),
+                                                            editCoins.toIntOrNull()
+                                                                ?: effectiveCoins(def)
+                                                        )
+                                                        editingId = null
+                                                    },
+                                                    contentPadding = PaddingValues(
+                                                        horizontal = 10.dp,
+                                                        vertical = 2.dp
+                                                    )
+                                                ) {
+                                                    Text("保存", style = MaterialTheme.typography.labelLarge)
+                                                }
+                                                TextButton(
+                                                    onClick = {
+                                                        focusManager.clearFocus(force = true)
+                                                        keyboard?.hide()
+                                                        editingId = null
+                                                    },
+                                                    contentPadding = PaddingValues(
+                                                        horizontal = 10.dp,
+                                                        vertical = 2.dp
+                                                    )
+                                                ) {
+                                                    Text("取消", style = MaterialTheme.typography.labelLarge)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 40.dp)
+                                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                "☰",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(end = 6.dp)
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(def.label, style = MaterialTheme.typography.bodyMedium)
+                                                Text(
+                                                    trackModeHint(
+                                                        def,
+                                                        effectiveFans(def),
+                                                        effectiveCoins(def)
+                                                    ) + if (def.locked) " · 内置" else "",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    editingId = def.id
+                                                    editLabel = def.label
+                                                    editMinutes = def.defaultMinutes.toString()
+                                                    editFans = effectiveFans(def).toString()
+                                                    editCoins = effectiveCoins(def).toString()
+                                                },
+                                                contentPadding = PaddingValues(
+                                                    horizontal = 8.dp,
+                                                    vertical = 0.dp
+                                                )
+                                            ) {
+                                                Text("改", style = MaterialTheme.typography.labelLarge)
+                                            }
+                                            if (!def.locked) {
+                                                TextButton(
+                                                    onClick = { onDelete(def.id) },
+                                                    contentPadding = PaddingValues(
+                                                        horizontal = 8.dp,
+                                                        vertical = 0.dp
+                                                    )
+                                                ) {
+                                                    Text("删", style = MaterialTheme.typography.labelLarge)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
+                                if (index < ordered.lastIndex) WeChatInsetDivider()
                             }
-                            if (index < tracks.lastIndex) WeChatInsetDivider()
                         }
                     }
                 }
 
-                // Sticky actions — always visible above the keyboard.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
                         onClick = ::submitNew,
-                        enabled = newLabel.isNotBlank()
+                        enabled = newLabel.isNotBlank(),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            if (newLabel.isBlank()) "添加（先写名称）"
-                            else "添加 · +${newFans.ifBlank { "0" }}粉"
+                            if (newLabel.isBlank()) "添加（写名称）"
+                            else "添加 · +${newFans.ifBlank { "0" }}粉",
+                            style = MaterialTheme.typography.labelLarge
                         )
                     }
-                    TextButton(onClick = ::closeEditor) { Text("完成") }
+                    TextButton(
+                        onClick = ::closeEditor,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) { Text("完成", style = MaterialTheme.typography.labelLarge) }
                 }
             }
         }
@@ -714,11 +873,95 @@ private fun LightTrackEditorDialog(
 
 private fun trackModeHint(def: LightTrackDef, fans: Int, coins: Int): String {
     val mode = if (def.backing == PracticeTrack.LIFE) {
-        "只勾选"
+        "勾选"
     } else {
-        "计时 · ${def.defaultMinutes}分"
+        "计时${def.defaultMinutes}分"
     }
     return "$mode · +${fans}粉 +${coins}币"
+}
+
+@Composable
+private fun CompactTrackField(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    wide: Boolean = false,
+    digits: Int? = null,
+    onValueChange: (String) -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    var field by remember(value) {
+        mutableStateOf(TextFieldValue(value, TextRange(value.length)))
+    }
+    LaunchedEffect(value) {
+        if (field.text != value) {
+            field = TextFieldValue(value, TextRange(value.length))
+        }
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 36.dp)
+            .clickable { focusRequester.requestFocus() }
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.width(if (wide) 40.dp else 36.dp)
+        )
+        BasicTextField(
+            value = field,
+            onValueChange = { next ->
+                val cleaned = if (digits != null) {
+                    next.text.filter(Char::isDigit).take(digits)
+                } else {
+                    next.text
+                }
+                field = if (digits != null) {
+                    TextFieldValue(cleaned, TextRange(cleaned.length))
+                } else {
+                    next.copy(text = cleaned)
+                }
+                onValueChange(cleaned)
+            },
+            singleLine = true,
+            textStyle = TextStyle(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                textAlign = if (wide) TextAlign.Start else TextAlign.End
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = if (digits != null) {
+                KeyboardOptions(keyboardType = KeyboardType.Number)
+            } else {
+                KeyboardOptions.Default
+            },
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 32.dp)
+                .border(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.65f),
+                    RoundedCornerShape(6.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .focusRequester(focusRequester)
+                .onFocusChanged { state ->
+                    if (state.isFocused && digits != null) {
+                        field = field.copy(selection = TextRange(field.text.length))
+                    }
+                },
+            decorationBox = { inner ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = if (wide) Alignment.CenterStart else Alignment.CenterEnd
+                ) { inner() }
+            }
+        )
+    }
 }
 
 @Composable
@@ -1094,7 +1337,10 @@ private fun RewardRulesDialog(
     }
 }
 
-/** WeChat form cell: label left, compact number field right. */
+/**
+ * Label left, number field fills the rest so the right-side digits are easy to tap.
+ * Focus jumps the caret to the end (append/edit without hunting the far-right pixel).
+ */
 @Composable
 private fun RewardValueRow(
     label: String,
@@ -1102,18 +1348,36 @@ private fun RewardValueRow(
     maxLen: Int,
     onValueChange: (String) -> Unit
 ) {
+    val focusRequester = remember { FocusRequester() }
+    var field by remember(value) {
+        mutableStateOf(TextFieldValue(value, TextRange(value.length)))
+    }
+    LaunchedEffect(value) {
+        if (field.text != value) {
+            field = TextFieldValue(value, TextRange(value.length))
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 44.dp)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .heightIn(min = 48.dp)
+            .clickable { focusRequester.requestFocus() }
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.width(72.dp)
+        )
         BasicTextField(
-            value = value,
-            onValueChange = { onValueChange(it.filter(Char::isDigit).take(maxLen)) },
+            value = field,
+            onValueChange = { next ->
+                val digits = next.text.filter(Char::isDigit).take(maxLen)
+                field = TextFieldValue(digits, TextRange(digits.length))
+                onValueChange(digits)
+            },
             singleLine = true,
             textStyle = TextStyle(
                 color = MaterialTheme.colorScheme.onSurface,
@@ -1123,17 +1387,26 @@ private fun RewardValueRow(
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier
-                .width(72.dp)
-                .height(32.dp)
+                .weight(1f)
+                .heightIn(min = 40.dp)
                 .border(
                     0.5.dp,
                     MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     RoundedCornerShape(8.dp)
                 )
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .focusRequester(focusRequester)
+                .onFocusChanged { state ->
+                    if (state.isFocused) {
+                        field = field.copy(selection = TextRange(field.text.length))
+                    }
+                },
             decorationBox = { inner ->
-                Box(contentAlignment = Alignment.CenterEnd) {
-                    if (value.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    if (field.text.isEmpty()) {
                         Text(
                             "0",
                             style = MaterialTheme.typography.bodyLarge,
