@@ -82,47 +82,101 @@ class AppUpdateRepository(
         onProgress: (Float) -> Unit = {}
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val url = resolveApkUrl(remote)
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 20_000
-                readTimeout = 120_000
-                instanceFollowRedirects = true
-                setRequestProperty("Accept", "*/*")
+            val dir = File(context.cacheDir, "apk").also { it.mkdirs() }
+            val outFile = File(dir, "home-strength-${remote.versionName}.apk")
+            val path = remote.apkPath.trim().trimStart('/')
+            if (remote.apkUrl.isBlank()) {
+                writeApkFromGiteeContents(path, outFile, onProgress)
+            } else {
+                downloadApkFromUrl(resolveApkUrl(remote), outFile, onProgress)
             }
-            try {
-                val code = conn.responseCode
-                if (code !in 200..299) {
-                    val err = conn.errorStream?.bufferedReader()?.readText()?.take(200).orEmpty()
-                    error("下载失败 HTTP $code ${err.take(120)}")
-                }
-                val total = conn.contentLengthLong.coerceAtLeast(-1L)
-                val dir = File(context.cacheDir, "apk").also { it.mkdirs() }
-                val outFile = File(dir, "home-strength-${remote.versionName}.apk")
-                BufferedInputStream(conn.inputStream).use { input ->
-                    FileOutputStream(outFile).use { output ->
-                        val buf = ByteArray(8192)
-                        var readTotal = 0L
-                        while (true) {
-                            val n = input.read(buf)
-                            if (n <= 0) break
-                            output.write(buf, 0, n)
-                            readTotal += n
-                            if (total > 0L) {
-                                onProgress((readTotal.toFloat() / total.toFloat()).coerceIn(0f, 1f))
-                            }
+            if (outFile.length() < 10_000L) {
+                outFile.delete()
+                error("下载文件过小，请确认 Gitee 上已上传 APK")
+            }
+            onProgress(1f)
+            outFile
+        }
+    }
+
+    /**
+     * Private repos often reject [raw] URLs (HTTP 403). Contents API + download_url works with the same token.
+     */
+    private fun writeApkFromGiteeContents(
+        path: String,
+        outFile: File,
+        onProgress: (Float) -> Unit
+    ) {
+        val encodedPath = path.split("/").joinToString("/") {
+            URLEncoder.encode(it, "UTF-8")
+        }
+        val branch = prefs.branch.ifBlank { "master" }
+        val metaUrl =
+            "https://gitee.com/api/v5/repos/${prefs.owner}/${prefs.repo}/contents/$encodedPath" +
+                "?access_token=${URLEncoder.encode(prefs.accessToken, "UTF-8")}" +
+                "&ref=${URLEncoder.encode(branch, "UTF-8")}"
+        val body = httpGet(metaUrl)
+        val json = JSONObject(body)
+        val b64 = json.optString("content", "").replace("\n", "")
+        if (b64.isNotBlank()) {
+            val bytes = Base64.decode(b64, Base64.DEFAULT)
+            FileOutputStream(outFile).use { it.write(bytes) }
+            onProgress(1f)
+            return
+        }
+        val downloadUrl = json.optString("download_url", "")
+        if (downloadUrl.isBlank()) {
+            error("Gitee 未返回 APK 下载地址，请确认 update/home-strength.apk 已上传")
+        }
+        downloadApkFromUrl(withAccessToken(downloadUrl), outFile, onProgress)
+    }
+
+    private fun downloadApkFromUrl(
+        url: String,
+        outFile: File,
+        onProgress: (Float) -> Unit
+    ) {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20_000
+            readTimeout = 300_000
+            instanceFollowRedirects = true
+            setRequestProperty("Accept", "*/*")
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val err = conn.errorStream?.bufferedReader()?.readText()?.take(200).orEmpty()
+                error("下载失败 HTTP $code ${err.take(120)}")
+            }
+            val total = conn.contentLengthLong.coerceAtLeast(-1L)
+            BufferedInputStream(conn.inputStream).use { input ->
+                FileOutputStream(outFile).use { output ->
+                    val buf = ByteArray(8192)
+                    var readTotal = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        output.write(buf, 0, n)
+                        readTotal += n
+                        if (total > 0L) {
+                            onProgress((readTotal.toFloat() / total.toFloat()).coerceIn(0f, 1f))
                         }
-                        output.flush()
                     }
+                    output.flush()
                 }
-                if (outFile.length() < 10_000L) {
-                    outFile.delete()
-                    error("下载文件过小，请确认 Gitee 上已上传 APK")
-                }
-                onProgress(1f)
-                outFile
-            } finally {
-                conn.disconnect()
             }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun withAccessToken(url: String): String {
+        val raw = url.trim()
+        return if (raw.contains("access_token=")) {
+            raw
+        } else {
+            val sep = if (raw.contains("?")) "&" else "?"
+            raw + sep + "access_token=" + URLEncoder.encode(prefs.accessToken, "UTF-8")
         }
     }
 
