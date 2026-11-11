@@ -2,6 +2,7 @@ package com.homestrength.ui.settings
 
 import android.app.Activity
 import android.os.Process
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -15,10 +16,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -43,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.TraineeProfileEntity
@@ -140,11 +143,20 @@ fun SettingsScreen(
             )
         }
 
+        WeChatGroupLabel("奖励规则")
+        WeChatGroup {
+            WeChatCell(
+                title = "管理奖励",
+                subtitle = "清单 / 轻轨默认 / 力量 / 早睡 / 冥想",
+                onClick = { showRewardEditor = true }
+            )
+        }
+
         WeChatGroupLabel("轻轨轨道")
         WeChatGroup {
             WeChatCell(
                 title = "管理轨道",
-                subtitle = "改名称、加阅读/书法等 · 首页与清单同步",
+                subtitle = "改名称、加阅读/书法等 · 单条可改粉币",
                 onClick = {
                     viewModel.reloadLightTracks()
                     showLightTrackEditor = true
@@ -170,39 +182,6 @@ fun SettingsScreen(
                 title = "默认休息",
                 value = "${settings.defaultRestSeconds} 秒",
                 onClick = { editor = SettingEditor.RestSeconds }
-            )
-        }
-
-        WeChatGroupLabel("奖励规则")
-        WeChatGroup {
-            WeChatCell(
-                title = "清单勾选",
-                subtitle = "+${profile.checklistFans} 粉 · +${profile.checklistCoins} 币",
-                showDivider = true,
-                onClick = { showRewardEditor = true }
-            )
-            WeChatCell(
-                title = "轻轨道",
-                subtitle = "+${profile.lightFans} 粉 · +${profile.lightCoins} 币",
-                showDivider = true,
-                onClick = { showRewardEditor = true }
-            )
-            WeChatCell(
-                title = "力量训练",
-                subtitle = "+${profile.strengthFans} 粉 · +${profile.strengthCoins} 币",
-                showDivider = true,
-                onClick = { showRewardEditor = true }
-            )
-            WeChatCell(
-                title = "早睡",
-                subtitle = "元气 +${profile.sleepEnergyRestore} · 一天一次",
-                showDivider = true,
-                onClick = { showRewardEditor = true }
-            )
-            WeChatCell(
-                title = "冥想",
-                subtitle = "元气 +${profile.meditationEnergyRestore} · 不限次",
-                onClick = { showRewardEditor = true }
             )
         }
 
@@ -499,6 +478,9 @@ private fun LightTrackEditorDialog(
     var editMinutes by remember { mutableStateOf("10") }
     var editFans by remember { mutableStateOf("") }
     var editCoins by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val scroll = rememberScrollState()
 
     fun effectiveFans(def: LightTrackDef): Int =
         if (def.rewardFans >= 0) def.rewardFans
@@ -508,31 +490,126 @@ private fun LightTrackEditorDialog(
         if (def.rewardCoins >= 0) def.rewardCoins
         else if (def.isTimed()) defaultLightCoins else defaultChecklistCoins
 
-    Dialog(onDismissRequest = onDismiss) {
+    fun closeEditor() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onDismiss()
+    }
+
+    fun submitNew() {
+        if (newLabel.isBlank()) return
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onAdd(
+            newLabel,
+            newTimed,
+            newMinutes.toIntOrNull() ?: 10,
+            newFans.toIntOrNull()
+                ?: if (newTimed) defaultLightFans else defaultChecklistFans,
+            newCoins.toIntOrNull()
+                ?: if (newTimed) defaultLightCoins else defaultChecklistCoins
+        )
+        newLabel = ""
+        newMinutes = "10"
+        newTimed = true
+        newFans = defaultLightFans.toString()
+        newCoins = defaultLightCoins.toString()
+    }
+
+    // IME often swallows the first back; always leave the dialog on back.
+    BackHandler(onBack = ::closeEditor)
+
+    Dialog(
+        onDismissRequest = ::closeEditor,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = true,
+            decorFitsSystemWindows = true
+        )
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 580.dp)
+                .imePadding()
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                 Text("管理练习轨道", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "与算法 / 声乐同级；每条可单独设粉丝和币。内置项不能删。",
+                    "先填下面新建；列表可改奖励。内置项不能删。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
 
-                WeChatGroupLabel("现有轨道")
-                WeChatGroup {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 80.dp, max = 200.dp)
-                    ) {
-                        itemsIndexed(tracks, key = { _, def -> def.id }) { index, def ->
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(scroll)
+                ) {
+                    // New track first so "添加" is not buried under the list / keyboard.
+                    WeChatGroupLabel("新建同级轨道")
+                    WeChatGroup {
+                        RoomTextRow("名称", newLabel) { newLabel = it.take(12) }
+                        WeChatInsetDivider()
+                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                            Text(
+                                "怎么练",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(
+                                    selected = newTimed,
+                                    onClick = {
+                                        newTimed = true
+                                        newFans = defaultLightFans.toString()
+                                        newCoins = defaultLightCoins.toString()
+                                    },
+                                    label = { Text("计时练习") }
+                                )
+                                FilterChip(
+                                    selected = !newTimed,
+                                    onClick = {
+                                        newTimed = false
+                                        newFans = defaultChecklistFans.toString()
+                                        newCoins = defaultChecklistCoins.toString()
+                                    },
+                                    label = { Text("只勾选") }
+                                )
+                            }
+                            if (newTimed) {
+                                Spacer(Modifier.height(6.dp))
+                                RoomTextRow("默认分钟", newMinutes) {
+                                    newMinutes = it.filter(Char::isDigit).take(3)
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            RoomTextRow("粉丝奖励", newFans) {
+                                newFans = it.filter(Char::isDigit).take(3)
+                            }
+                            RoomTextRow("星光币", newCoins) {
+                                newCoins = it.filter(Char::isDigit).take(2)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                    )
+
+                    WeChatGroupLabel("现有轨道")
+                    WeChatGroup {
+                        tracks.forEachIndexed { index, def ->
                             if (editingId == def.id) {
                                 Column(
                                     modifier = Modifier
@@ -555,6 +632,8 @@ private fun LightTrackEditorDialog(
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton(
                                             onClick = {
+                                                focusManager.clearFocus(force = true)
+                                                keyboard?.hide()
                                                 onUpdate(
                                                     def.id,
                                                     editLabel,
@@ -565,7 +644,13 @@ private fun LightTrackEditorDialog(
                                                 editingId = null
                                             }
                                         ) { Text("保存") }
-                                        TextButton(onClick = { editingId = null }) { Text("取消") }
+                                        TextButton(
+                                            onClick = {
+                                                focusManager.clearFocus(force = true)
+                                                keyboard?.hide()
+                                                editingId = null
+                                            }
+                                        ) { Text("取消") }
                                     }
                                 }
                             } else {
@@ -603,96 +688,24 @@ private fun LightTrackEditorDialog(
                     }
                 }
 
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                )
-
-                WeChatGroupLabel("新建同级轨道")
-                WeChatGroup {
-                    RoomTextRow("名称", newLabel) { newLabel = it.take(12) }
-                    WeChatInsetDivider()
-                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-                        Text(
-                            "怎么练",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            FilterChip(
-                                selected = newTimed,
-                                onClick = {
-                                    newTimed = true
-                                    newFans = defaultLightFans.toString()
-                                    newCoins = defaultLightCoins.toString()
-                                },
-                                label = { Text("计时练习") }
-                            )
-                            FilterChip(
-                                selected = !newTimed,
-                                onClick = {
-                                    newTimed = false
-                                    newFans = defaultChecklistFans.toString()
-                                    newCoins = defaultChecklistCoins.toString()
-                                },
-                                label = { Text("只勾选") }
-                            )
-                        }
-                        if (newTimed) {
-                            Spacer(Modifier.height(6.dp))
-                            RoomTextRow("默认分钟", newMinutes) {
-                                newMinutes = it.filter(Char::isDigit).take(3)
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        RoomTextRow("粉丝奖励", newFans) {
-                            newFans = it.filter(Char::isDigit).take(3)
-                        }
-                        RoomTextRow("星光币", newCoins) {
-                            newCoins = it.filter(Char::isDigit).take(2)
-                        }
-                    }
-                    WeChatInsetDivider()
-                    WeChatCell(
-                        title = "添加",
-                        subtitle = when {
-                            newLabel.isBlank() -> "先写名称，如：钢琴、英语"
-                            else -> "+${newFans.ifBlank { "0" }}粉 · +${newCoins.ifBlank { "0" }}币"
-                        },
-                        showChevron = false,
-                        onClick = {
-                            if (newLabel.isNotBlank()) {
-                                onAdd(
-                                    newLabel,
-                                    newTimed,
-                                    newMinutes.toIntOrNull() ?: 10,
-                                    newFans.toIntOrNull()
-                                        ?: if (newTimed) defaultLightFans else defaultChecklistFans,
-                                    newCoins.toIntOrNull()
-                                        ?: if (newTimed) defaultLightCoins else defaultChecklistCoins
-                                )
-                                newLabel = ""
-                                newMinutes = "10"
-                                newTimed = true
-                                newFans = defaultLightFans.toString()
-                                newCoins = defaultLightCoins.toString()
-                            }
-                        }
-                    )
-                }
-
+                // Sticky actions — always visible above the keyboard.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) { Text("完成") }
+                    TextButton(
+                        onClick = ::submitNew,
+                        enabled = newLabel.isNotBlank()
+                    ) {
+                        Text(
+                            if (newLabel.isBlank()) "添加（先写名称）"
+                            else "添加 · +${newFans.ifBlank { "0" }}粉"
+                        )
+                    }
+                    TextButton(onClick = ::closeEditor) { Text("完成") }
                 }
             }
         }
@@ -790,14 +803,41 @@ private fun RoomSettingsDialog(
     var owner by remember { mutableStateOf(room.owner) }
     var repo by remember { mutableStateOf(room.repo) }
     var branch by remember { mutableStateOf(room.branch) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val scroll = rememberScrollState()
 
-    Dialog(onDismissRequest = onDismiss) {
+    fun closeRoom() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onDismiss()
+    }
+
+    fun saveRoom() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onChange(null, owner, repo, branch, token, myId, peerId)
+        onSave()
+    }
+
+    BackHandler(onBack = ::closeRoom)
+
+    Dialog(
+        onDismissRequest = ::closeRoom,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = true,
+            decorFitsSystemWindows = true
+        )
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 560.dp)
+                .imePadding()
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                 Text("双人练习室", style = MaterialTheme.typography.titleMedium)
@@ -808,43 +848,38 @@ private fun RoomSettingsDialog(
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
 
-                // Token fixed near top so keyboard doesn't bury it after a scroll jump.
-                WeChatGroupLabel("私人令牌 · 只存本机")
-                WeChatGroup {
-                    RoomTextRow(
-                        label = if (showToken) "Token" else "Token ·••",
-                        value = token,
-                        password = !showToken,
-                        onValueChange = { token = it }
-                    )
-                    WeChatInsetDivider()
-                    WeChatCell(
-                        title = if (showToken) "隐藏令牌" else "显示令牌",
-                        onClick = { showToken = !showToken }
-                    )
-                }
-
-                LazyColumn(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
                         .weight(1f, fill = false)
-                        .heightIn(max = 260.dp)
+                        .verticalScroll(scroll)
                 ) {
-                    item {
-                        WeChatGroupLabel("成员 ID")
-                        WeChatGroup {
-                            RoomTextRow("我的 ID", myId) { myId = it }
-                            WeChatInsetDivider()
-                            RoomTextRow("对方 ID", peerId) { peerId = it }
-                        }
-                        WeChatGroupLabel("仓库（一般不用改）")
-                        WeChatGroup {
-                            RoomTextRow("Owner", owner) { owner = it }
-                            WeChatInsetDivider()
-                            RoomTextRow("Repo", repo) { repo = it }
-                            WeChatInsetDivider()
-                            RoomTextRow("Branch", branch) { branch = it }
-                        }
+                    WeChatGroupLabel("私人令牌 · 只存本机")
+                    WeChatGroup {
+                        RoomTextRow(
+                            label = if (showToken) "Token" else "Token ·••",
+                            value = token,
+                            password = !showToken,
+                            onValueChange = { token = it }
+                        )
+                        WeChatInsetDivider()
+                        WeChatCell(
+                            title = if (showToken) "隐藏令牌" else "显示令牌",
+                            onClick = { showToken = !showToken }
+                        )
+                    }
+                    WeChatGroupLabel("成员 ID")
+                    WeChatGroup {
+                        RoomTextRow("我的 ID", myId) { myId = it }
+                        WeChatInsetDivider()
+                        RoomTextRow("对方 ID", peerId) { peerId = it }
+                    }
+                    WeChatGroupLabel("仓库（一般不用改）")
+                    WeChatGroup {
+                        RoomTextRow("Owner", owner) { owner = it }
+                        WeChatInsetDivider()
+                        RoomTextRow("Repo", repo) { repo = it }
+                        WeChatInsetDivider()
+                        RoomTextRow("Branch", branch) { branch = it }
                     }
                 }
 
@@ -854,13 +889,8 @@ private fun RoomSettingsDialog(
                         .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) { Text("取消") }
-                    TextButton(
-                        onClick = {
-                            onChange(null, owner, repo, branch, token, myId, peerId)
-                            onSave()
-                        }
-                    ) { Text("保存") }
+                    TextButton(onClick = ::closeRoom) { Text("取消") }
+                    TextButton(onClick = ::saveRoom) { Text("保存") }
                 }
             }
         }
@@ -945,95 +975,123 @@ private fun RewardRulesDialog(
     var meditationEnergy by remember(profile) { mutableStateOf(profile.meditationEnergyRestore.toString()) }
     var meditationFans by remember(profile) { mutableStateOf(profile.meditationFans.toString()) }
     var meditationCoins by remember(profile) { mutableStateOf(profile.meditationCoins.toString()) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val scroll = rememberScrollState()
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("奖励规则", style = MaterialTheme.typography.titleMedium)
+    fun closeReward() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onDismiss()
+    }
+
+    fun saveReward() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onSave(
+            RewardDraft(
+                checklistFans = checklistFans.toIntOrNull() ?: profile.checklistFans,
+                checklistCoins = checklistCoins.toIntOrNull() ?: profile.checklistCoins,
+                lightFans = lightFans.toIntOrNull() ?: profile.lightFans,
+                lightCoins = lightCoins.toIntOrNull() ?: profile.lightCoins,
+                strengthFans = strengthFans.toIntOrNull() ?: profile.strengthFans,
+                strengthCoins = strengthCoins.toIntOrNull() ?: profile.strengthCoins,
+                sleepEnergyRestore = sleepEnergy.toIntOrNull() ?: profile.sleepEnergyRestore,
+                sleepFans = sleepFans.toIntOrNull() ?: profile.sleepFans,
+                sleepCoins = sleepCoins.toIntOrNull() ?: profile.sleepCoins,
+                meditationEnergyRestore = meditationEnergy.toIntOrNull()
+                    ?: profile.meditationEnergyRestore,
+                meditationFans = meditationFans.toIntOrNull() ?: profile.meditationFans,
+                meditationCoins = meditationCoins.toIntOrNull() ?: profile.meditationCoins
+            )
+        )
+    }
+
+    BackHandler(onBack = ::closeReward)
+
+    Dialog(
+        onDismissRequest = ::closeReward,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = true,
+            decorFitsSystemWindows = true
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 580.dp)
+                .imePadding()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Text("管理奖励", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "粉丝 / 币",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    "轻轨默认给未单独设粉币的轨道；单条可在「管理轨道」里改。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(scroll)
+                ) {
+                    WeChatGroupLabel("清单勾选")
+                    WeChatGroup {
+                        RewardValueRow("粉丝", checklistFans, maxLen = 3) { checklistFans = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("星光币", checklistCoins, maxLen = 2) { checklistCoins = it }
+                    }
+
+                    WeChatGroupLabel("轻轨默认")
+                    WeChatGroup {
+                        RewardValueRow("粉丝", lightFans, maxLen = 3) { lightFans = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("星光币", lightCoins, maxLen = 2) { lightCoins = it }
+                    }
+
+                    WeChatGroupLabel("力量训练")
+                    WeChatGroup {
+                        RewardValueRow("粉丝", strengthFans, maxLen = 3) { strengthFans = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("星光币", strengthCoins, maxLen = 2) { strengthCoins = it }
+                    }
+
+                    WeChatGroupLabel("早睡 · 一天一次")
+                    WeChatGroup {
+                        RewardValueRow("恢复元气", sleepEnergy, maxLen = 3) { sleepEnergy = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("粉丝", sleepFans, maxLen = 3) { sleepFans = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("星光币", sleepCoins, maxLen = 2) { sleepCoins = it }
+                    }
+
+                    WeChatGroupLabel("冥想 · 不限次")
+                    WeChatGroup {
+                        RewardValueRow("恢复元气", meditationEnergy, maxLen = 2) { meditationEnergy = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("粉丝", meditationFans, maxLen = 3) { meditationFans = it }
+                        WeChatInsetDivider()
+                        RewardValueRow("星光币", meditationCoins, maxLen = 2) { meditationCoins = it }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = ::closeReward) { Text("取消") }
+                    TextButton(onClick = ::saveReward) { Text("保存") }
+                }
             }
-        },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
-            ) {
-                WeChatGroupLabel("清单勾选")
-                WeChatGroup {
-                    RewardValueRow("粉丝", checklistFans, maxLen = 3) { checklistFans = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("星光币", checklistCoins, maxLen = 2) { checklistCoins = it }
-                }
-
-                WeChatGroupLabel("轻轨道")
-                WeChatGroup {
-                    RewardValueRow("粉丝", lightFans, maxLen = 3) { lightFans = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("星光币", lightCoins, maxLen = 2) { lightCoins = it }
-                }
-
-                WeChatGroupLabel("力量训练")
-                WeChatGroup {
-                    RewardValueRow("粉丝", strengthFans, maxLen = 3) { strengthFans = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("星光币", strengthCoins, maxLen = 2) { strengthCoins = it }
-                }
-
-                WeChatGroupLabel("早睡")
-                WeChatGroup {
-                    RewardValueRow("恢复元气", sleepEnergy, maxLen = 3) { sleepEnergy = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("粉丝", sleepFans, maxLen = 3) { sleepFans = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("星光币", sleepCoins, maxLen = 2) { sleepCoins = it }
-                }
-
-                WeChatGroupLabel("冥想 · 不限次")
-                WeChatGroup {
-                    RewardValueRow("恢复元气", meditationEnergy, maxLen = 2) { meditationEnergy = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("粉丝", meditationFans, maxLen = 3) { meditationFans = it }
-                    WeChatInsetDivider()
-                    RewardValueRow("星光币", meditationCoins, maxLen = 2) { meditationCoins = it }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(
-                        RewardDraft(
-                            checklistFans = checklistFans.toIntOrNull() ?: profile.checklistFans,
-                            checklistCoins = checklistCoins.toIntOrNull() ?: profile.checklistCoins,
-                            lightFans = lightFans.toIntOrNull() ?: profile.lightFans,
-                            lightCoins = lightCoins.toIntOrNull() ?: profile.lightCoins,
-                            strengthFans = strengthFans.toIntOrNull() ?: profile.strengthFans,
-                            strengthCoins = strengthCoins.toIntOrNull() ?: profile.strengthCoins,
-                            sleepEnergyRestore = sleepEnergy.toIntOrNull() ?: profile.sleepEnergyRestore,
-                            sleepFans = sleepFans.toIntOrNull() ?: profile.sleepFans,
-                            sleepCoins = sleepCoins.toIntOrNull() ?: profile.sleepCoins,
-                            meditationEnergyRestore = meditationEnergy.toIntOrNull()
-                                ?: profile.meditationEnergyRestore,
-                            meditationFans = meditationFans.toIntOrNull() ?: profile.meditationFans,
-                            meditationCoins = meditationCoins.toIntOrNull() ?: profile.meditationCoins
-                        )
-                    )
-                }
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
         }
-    )
+    }
 }
 
 /** WeChat form cell: label left, compact number field right. */

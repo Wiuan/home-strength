@@ -49,6 +49,7 @@ import com.homestrength.data.local.entity.PowerItemStatus
 import com.homestrength.data.local.entity.PowerListItemEntity
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.track.LightTrackCatalog
+import com.homestrength.data.track.LightTrackDef
 import com.homestrength.data.local.entity.WorkoutType
 import com.homestrength.data.repository.TraineeRepository
 import com.homestrength.domain.trainee.TraineeGrade
@@ -113,16 +114,26 @@ fun HomeScreen(
     var draftTrackDefId by remember { mutableStateOf<String?>("life") }
     var draftDurationMin by remember { mutableStateOf(0) }
     var customDurationText by remember { mutableStateOf("") }
+    /** Last auto-filled title; switching track/minutes rematches while text still equals this. */
+    var lastAutoTitle by remember { mutableStateOf("") }
     val checklistTracks = lightTrackCatalog.checklistTracks()
     val homeTracks = lightTrackCatalog.homeTracks()
     var celebratingGrade by remember { mutableStateOf<TraineeGrade?>(null) }
     val scope = rememberCoroutineScope()
     val draftMinutes = resolveDraftMinutes(draftDurationMin, customDurationText)
     val selectedDef = checklistTracks.firstOrNull { it.id == draftTrackDefId }
+    fun matchedTitle(def: LightTrackDef?, track: PracticeTrack, minutes: Int): String =
+        def?.defaultTitle(minutes) ?: defaultChecklistTitle(track, minutes)
     val titleHint = when {
         draftItem.isNotBlank() -> draftItem.trim()
-        selectedDef != null -> selectedDef.defaultTitle(draftMinutes)
-        else -> defaultChecklistTitle(draftTrack, draftMinutes)
+        else -> matchedTitle(selectedDef, draftTrack, draftMinutes)
+    }
+    fun applyAutoTitle(def: LightTrackDef?, track: PracticeTrack, minutes: Int) {
+        val next = matchedTitle(def, track, minutes)
+        if (draftItem.isBlank() || draftItem == lastAutoTitle) {
+            draftItem = next
+        }
+        lastAutoTitle = next
     }
     LaunchedEffect(viewModel) {
         viewModel.gradeUpgrade.collect { celebratingGrade = it }
@@ -228,16 +239,17 @@ fun HomeScreen(
                                     onClick = {
                                         draftTrack = def.backing
                                         draftTrackDefId = def.id
-                                        if (def.backing == PracticeTrack.LIFE) {
+                                        val minutes = if (def.backing == PracticeTrack.LIFE) {
                                             draftDurationMin = 0
                                             customDurationText = ""
+                                            0
                                         } else {
-                                            draftDurationMin = def.defaultMinutes.coerceAtLeast(1)
+                                            val m = def.defaultMinutes.coerceAtLeast(1)
+                                            draftDurationMin = m
                                             customDurationText = ""
+                                            m
                                         }
-                                        if (draftItem.isBlank()) {
-                                            draftItem = def.defaultTitle(draftDurationMin)
-                                        }
+                                        applyAutoTitle(def, def.backing, minutes)
                                     }
                                 )
                             }
@@ -259,6 +271,7 @@ fun HomeScreen(
                                     onClick = {
                                         draftDurationMin = min
                                         customDurationText = ""
+                                        applyAutoTitle(selectedDef, draftTrack, min)
                                     }
                                 )
                             }
@@ -266,7 +279,14 @@ fun HomeScreen(
                                 value = customDurationText,
                                 onValueChange = {
                                     customDurationText = it.filter(Char::isDigit).take(3)
-                                    if (customDurationText.isNotBlank()) draftDurationMin = -1
+                                    if (customDurationText.isNotBlank()) {
+                                        draftDurationMin = -1
+                                        applyAutoTitle(
+                                            selectedDef,
+                                            draftTrack,
+                                            customDurationText.toIntOrNull() ?: 0
+                                        )
+                                    }
                                 }
                             )
                         }
@@ -314,8 +334,9 @@ fun HomeScreen(
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable {
                                         val minutes = draftMinutes
-                                        val title = draftItem.trim()
-                                            .ifBlank { defaultChecklistTitle(draftTrack, minutes) }
+                                        val title = draftItem.trim().ifBlank {
+                                            matchedTitle(selectedDef, draftTrack, minutes)
+                                        }
                                         val seconds = if (
                                             draftTrack == PracticeTrack.LIFE && minutes <= 0
                                         ) {
@@ -327,6 +348,7 @@ fun HomeScreen(
                                         }
                                         viewModel.addPowerItem(title, draftTrack, seconds)
                                         draftItem = ""
+                                        lastAutoTitle = ""
                                         customDurationText = ""
                                         draftDurationMin =
                                             if (draftTrack == PracticeTrack.LIFE) 0 else 10

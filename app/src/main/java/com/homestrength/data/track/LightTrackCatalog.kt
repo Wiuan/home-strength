@@ -33,10 +33,17 @@ data class LightTrackDef(
         .put("rewardCoins", rewardCoins)
 
     fun defaultTitle(minutes: Int = defaultMinutes): String {
-        val m = minutes.coerceAtLeast(0).let { if (it == 0) defaultMinutes else it }
+        val m = minutes.coerceAtLeast(0).let {
+            when {
+                it > 0 -> it
+                defaultMinutes > 0 -> defaultMinutes
+                else -> 10
+            }
+        }
         return when (backing) {
-            PracticeTrack.LIFE -> label
-            else -> if (label.contains("分钟")) label else "$label ${m}分钟"
+            // Keep the long-standing checklist default for the built-in life chip.
+            PracticeTrack.LIFE -> if (id == "life" || label == "生活") "打扫卫生" else label
+            else -> if (label.contains("分钟")) label else "${label}${m}分钟"
         }
     }
 
