@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -23,8 +26,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +50,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.TraineeProfileEntity
@@ -382,9 +388,17 @@ fun SettingsScreen(
     if (showLightTrackEditor) {
         LightTrackEditorDialog(
             tracks = lightTracks,
+            defaultLightFans = profile.lightFans,
+            defaultLightCoins = profile.lightCoins,
+            defaultChecklistFans = profile.checklistFans,
+            defaultChecklistCoins = profile.checklistCoins,
             onDismiss = { showLightTrackEditor = false },
-            onAdd = viewModel::addLightTrack,
-            onUpdate = viewModel::updateLightTrack,
+            onAdd = { label, timed, minutes, fans, coins ->
+                viewModel.addLightTrack(label, timed, minutes, fans, coins)
+            },
+            onUpdate = { id, label, minutes, fans, coins ->
+                viewModel.updateLightTrack(id, label, minutes, fans, coins)
+            },
             onDelete = viewModel::deleteLightTrack
         )
     }
@@ -466,104 +480,141 @@ fun SettingsScreen(
 @Composable
 private fun LightTrackEditorDialog(
     tracks: List<LightTrackDef>,
+    defaultLightFans: Int,
+    defaultLightCoins: Int,
+    defaultChecklistFans: Int,
+    defaultChecklistCoins: Int,
     onDismiss: () -> Unit,
-    onAdd: (label: String, backing: PracticeTrack) -> Unit,
-    onUpdate: (id: String, label: String, defaultMinutes: Int) -> Unit,
+    onAdd: (label: String, timed: Boolean, defaultMinutes: Int, fans: Int, coins: Int) -> Unit,
+    onUpdate: (id: String, label: String, defaultMinutes: Int, fans: Int, coins: Int) -> Unit,
     onDelete: (id: String) -> Unit
 ) {
     var newLabel by remember { mutableStateOf("") }
-    var newBacking by remember { mutableStateOf(PracticeTrack.CULTIVATION) }
+    var newTimed by remember { mutableStateOf(true) }
+    var newMinutes by remember { mutableStateOf("10") }
+    var newFans by remember { mutableStateOf(defaultLightFans.toString()) }
+    var newCoins by remember { mutableStateOf(defaultLightCoins.toString()) }
     var editingId by remember { mutableStateOf<String?>(null) }
     var editLabel by remember { mutableStateOf("") }
     var editMinutes by remember { mutableStateOf("10") }
-    val backingOptions = listOf(
-        PracticeTrack.CULTIVATION to "修养类",
-        PracticeTrack.ALGORITHM to "算法类",
-        PracticeTrack.VOCAL to "声乐类",
-        PracticeTrack.LIFE to "生活类"
-    )
+    var editFans by remember { mutableStateOf("") }
+    var editCoins by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("管理轻轨轨道", style = MaterialTheme.typography.titleMedium) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
-            ) {
+    fun effectiveFans(def: LightTrackDef): Int =
+        if (def.rewardFans >= 0) def.rewardFans
+        else if (def.isTimed()) defaultLightFans else defaultChecklistFans
+
+    fun effectiveCoins(def: LightTrackDef): Int =
+        if (def.rewardCoins >= 0) def.rewardCoins
+        else if (def.isTimed()) defaultLightCoins else defaultChecklistCoins
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 580.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Text("管理练习轨道", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "显示名称可自定义；类型决定奖励与计时。内置轨道不能删。",
+                    "与算法 / 声乐同级；每条可单独设粉丝和币。内置项不能删。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
+
                 WeChatGroupLabel("现有轨道")
                 WeChatGroup {
-                    tracks.forEachIndexed { index, def ->
-                        if (editingId == def.id) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                RoomTextRow("名称", editLabel) { editLabel = it.take(12) }
-                                RoomTextRow("默认分钟", editMinutes) {
-                                    editMinutes = it.filter(Char::isDigit).take(3)
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 80.dp, max = 200.dp)
+                    ) {
+                        itemsIndexed(tracks, key = { _, def -> def.id }) { index, def ->
+                            if (editingId == def.id) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    RoomTextRow("名称", editLabel) { editLabel = it.take(12) }
+                                    if (def.backing != PracticeTrack.LIFE) {
+                                        RoomTextRow("默认分钟", editMinutes) {
+                                            editMinutes = it.filter(Char::isDigit).take(3)
+                                        }
+                                    }
+                                    RoomTextRow("粉丝奖励", editFans) {
+                                        editFans = it.filter(Char::isDigit).take(3)
+                                    }
+                                    RoomTextRow("星光币", editCoins) {
+                                        editCoins = it.filter(Char::isDigit).take(2)
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton(
+                                            onClick = {
+                                                onUpdate(
+                                                    def.id,
+                                                    editLabel,
+                                                    editMinutes.toIntOrNull() ?: def.defaultMinutes,
+                                                    editFans.toIntOrNull() ?: effectiveFans(def),
+                                                    editCoins.toIntOrNull() ?: effectiveCoins(def)
+                                                )
+                                                editingId = null
+                                            }
+                                        ) { Text("保存") }
+                                        TextButton(onClick = { editingId = null }) { Text("取消") }
+                                    }
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(def.label, style = MaterialTheme.typography.bodyLarge)
+                                        Text(
+                                            trackModeHint(def, effectiveFans(def), effectiveCoins(def)) +
+                                                if (def.locked) " · 内置" else "",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     TextButton(
                                         onClick = {
-                                            onUpdate(
-                                                def.id,
-                                                editLabel,
-                                                editMinutes.toIntOrNull() ?: def.defaultMinutes
-                                            )
-                                            editingId = null
+                                            editingId = def.id
+                                            editLabel = def.label
+                                            editMinutes = def.defaultMinutes.toString()
+                                            editFans = effectiveFans(def).toString()
+                                            editCoins = effectiveCoins(def).toString()
                                         }
-                                    ) { Text("保存") }
-                                    TextButton(onClick = { editingId = null }) { Text("取消") }
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(def.label, style = MaterialTheme.typography.bodyLarge)
-                                    Text(
-                                        "${backingLabel(def.backing)} · 默认 ${def.defaultMinutes} 分" +
-                                            if (def.locked) " · 内置" else "",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                TextButton(
-                                    onClick = {
-                                        editingId = def.id
-                                        editLabel = def.label
-                                        editMinutes = def.defaultMinutes.toString()
+                                    ) { Text("改") }
+                                    if (!def.locked) {
+                                        TextButton(onClick = { onDelete(def.id) }) { Text("删") }
                                     }
-                                ) { Text("改") }
-                                if (!def.locked) {
-                                    TextButton(onClick = { onDelete(def.id) }) { Text("删") }
                                 }
                             }
+                            if (index < tracks.lastIndex) WeChatInsetDivider()
                         }
-                        if (index < tracks.lastIndex) WeChatInsetDivider()
                     }
                 }
 
-                WeChatGroupLabel("新建轨道")
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                )
+
+                WeChatGroupLabel("新建同级轨道")
                 WeChatGroup {
                     RoomTextRow("名称", newLabel) { newLabel = it.take(12) }
                     WeChatInsetDivider()
                     Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
                         Text(
-                            "类型",
+                            "怎么练",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -573,44 +624,88 @@ private fun LightTrackEditorDialog(
                                 .padding(top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            backingOptions.forEach { (track, label) ->
-                                FilterChip(
-                                    selected = newBacking == track,
-                                    onClick = { newBacking = track },
-                                    label = { Text(label) }
-                                )
+                            FilterChip(
+                                selected = newTimed,
+                                onClick = {
+                                    newTimed = true
+                                    newFans = defaultLightFans.toString()
+                                    newCoins = defaultLightCoins.toString()
+                                },
+                                label = { Text("计时练习") }
+                            )
+                            FilterChip(
+                                selected = !newTimed,
+                                onClick = {
+                                    newTimed = false
+                                    newFans = defaultChecklistFans.toString()
+                                    newCoins = defaultChecklistCoins.toString()
+                                },
+                                label = { Text("只勾选") }
+                            )
+                        }
+                        if (newTimed) {
+                            Spacer(Modifier.height(6.dp))
+                            RoomTextRow("默认分钟", newMinutes) {
+                                newMinutes = it.filter(Char::isDigit).take(3)
                             }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        RoomTextRow("粉丝奖励", newFans) {
+                            newFans = it.filter(Char::isDigit).take(3)
+                        }
+                        RoomTextRow("星光币", newCoins) {
+                            newCoins = it.filter(Char::isDigit).take(2)
                         }
                     }
                     WeChatInsetDivider()
                     WeChatCell(
                         title = "添加",
-                        subtitle = if (newLabel.isBlank()) "先写名称" else "加入首页与清单",
+                        subtitle = when {
+                            newLabel.isBlank() -> "先写名称，如：钢琴、英语"
+                            else -> "+${newFans.ifBlank { "0" }}粉 · +${newCoins.ifBlank { "0" }}币"
+                        },
                         showChevron = false,
                         onClick = {
                             if (newLabel.isNotBlank()) {
-                                onAdd(newLabel, newBacking)
+                                onAdd(
+                                    newLabel,
+                                    newTimed,
+                                    newMinutes.toIntOrNull() ?: 10,
+                                    newFans.toIntOrNull()
+                                        ?: if (newTimed) defaultLightFans else defaultChecklistFans,
+                                    newCoins.toIntOrNull()
+                                        ?: if (newTimed) defaultLightCoins else defaultChecklistCoins
+                                )
                                 newLabel = ""
+                                newMinutes = "10"
+                                newTimed = true
+                                newFans = defaultLightFans.toString()
+                                newCoins = defaultLightCoins.toString()
                             }
                         }
                     )
                 }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("完成") }
+                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("完成") }
         }
-    )
+    }
 }
 
-private fun backingLabel(track: PracticeTrack): String = when (track) {
-    PracticeTrack.ALGORITHM -> "算法类"
-    PracticeTrack.VOCAL -> "声乐类"
-    PracticeTrack.CULTIVATION,
-    PracticeTrack.READING,
-    PracticeTrack.CALLIGRAPHY -> "修养类"
-    PracticeTrack.LIFE -> "生活类"
-    else -> track.name
+private fun trackModeHint(def: LightTrackDef, fans: Int, coins: Int): String {
+    val mode = if (def.backing == PracticeTrack.LIFE) {
+        "只勾选"
+    } else {
+        "计时 · ${def.defaultMinutes}分"
+    }
+    return "$mode · +${fans}粉 +${coins}币"
 }
 
 @Composable
@@ -687,28 +782,40 @@ private fun RoomSettingsDialog(
     ) -> Unit,
     onSave: () -> Unit
 ) {
+    // Local draft: typing must not push ViewModel every keystroke (that scrolled the dialog to top).
     var showToken by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("双人练习室", style = MaterialTheme.typography.titleMedium) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
-            ) {
+    var token by remember { mutableStateOf(room.accessToken) }
+    var myId by remember { mutableStateOf(room.myMemberId) }
+    var peerId by remember { mutableStateOf(room.peerMemberId) }
+    var owner by remember { mutableStateOf(room.owner) }
+    var repo by remember { mutableStateOf(room.repo) }
+    var branch by remember { mutableStateOf(room.branch) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Text("双人练习室", style = MaterialTheme.typography.titleMedium)
                 Text(
                     if (room.enabled) "保存后会自动保持开启" else "填入令牌并保存后会自动开启同步",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                 )
+
+                // Token fixed near top so keyboard doesn't bury it after a scroll jump.
                 WeChatGroupLabel("私人令牌 · 只存本机")
                 WeChatGroup {
                     RoomTextRow(
                         label = if (showToken) "Token" else "Token ·••",
-                        value = room.accessToken,
+                        value = token,
                         password = !showToken,
-                        onValueChange = { onChange(null, null, null, null, it, null, null) }
+                        onValueChange = { token = it }
                     )
                     WeChatInsetDivider()
                     WeChatCell(
@@ -716,39 +823,48 @@ private fun RoomSettingsDialog(
                         onClick = { showToken = !showToken }
                     )
                 }
-                WeChatGroupLabel("成员 ID")
-                WeChatGroup {
-                    RoomTextRow("我的 ID", room.myMemberId) {
-                        onChange(null, null, null, null, null, it, null)
-                    }
-                    WeChatInsetDivider()
-                    RoomTextRow("对方 ID", room.peerMemberId) {
-                        onChange(null, null, null, null, null, null, it)
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .heightIn(max = 260.dp)
+                ) {
+                    item {
+                        WeChatGroupLabel("成员 ID")
+                        WeChatGroup {
+                            RoomTextRow("我的 ID", myId) { myId = it }
+                            WeChatInsetDivider()
+                            RoomTextRow("对方 ID", peerId) { peerId = it }
+                        }
+                        WeChatGroupLabel("仓库（一般不用改）")
+                        WeChatGroup {
+                            RoomTextRow("Owner", owner) { owner = it }
+                            WeChatInsetDivider()
+                            RoomTextRow("Repo", repo) { repo = it }
+                            WeChatInsetDivider()
+                            RoomTextRow("Branch", branch) { branch = it }
+                        }
                     }
                 }
-                WeChatGroupLabel("仓库（一般不用改）")
-                WeChatGroup {
-                    RoomTextRow("Owner", room.owner) {
-                        onChange(null, it, null, null, null, null, null)
-                    }
-                    WeChatInsetDivider()
-                    RoomTextRow("Repo", room.repo) {
-                        onChange(null, null, it, null, null, null, null)
-                    }
-                    WeChatInsetDivider()
-                    RoomTextRow("Branch", room.branch) {
-                        onChange(null, null, null, it, null, null, null)
-                    }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    TextButton(
+                        onClick = {
+                            onChange(null, owner, repo, branch, token, myId, peerId)
+                            onSave()
+                        }
+                    ) { Text("保存") }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onSave) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
         }
-    )
+    }
 }
 
 @Composable

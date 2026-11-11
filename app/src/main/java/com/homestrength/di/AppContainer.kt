@@ -16,13 +16,16 @@ class AppContainer(context: Context) {
     private val appContext = context.applicationContext
     private val database = HomeStrengthDatabase.getInstance(appContext)
 
+    val roomPrefs = RoomPrefs(appContext)
+
+    val lightTrackCatalog = LightTrackCatalog(appContext)
+
     val traineeRepository = TraineeRepository(
-        traineeDao = database.traineeDao()
+        traineeDao = database.traineeDao(),
+        lightTrackCatalog = lightTrackCatalog
     )
 
     val backupRepository = BackupRepository(database)
-
-    val roomPrefs = RoomPrefs(appContext)
 
     init {
         runBlocking(Dispatchers.IO) {
@@ -49,6 +52,4 @@ class AppContainer(context: Context) {
         context = appContext,
         prefs = roomPrefs
     )
-
-    val lightTrackCatalog = LightTrackCatalog(appContext)
 }

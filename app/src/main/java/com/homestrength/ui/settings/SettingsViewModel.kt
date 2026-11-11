@@ -300,30 +300,58 @@ class SettingsViewModel(
         viewModelScope.launch { _messages.emit("轻轨轨道已保存") }
     }
 
-    fun addLightTrack(label: String, backing: PracticeTrack) {
+    /**
+     * New tracks are peers of 算法/声乐/修养 on home & checklist.
+     * [timed]=true → light-practice rewards/timer; false → checklist-only (生活).
+     */
+    fun addLightTrack(
+        label: String,
+        timed: Boolean = true,
+        defaultMinutes: Int = 10,
+        rewardFans: Int = -1,
+        rewardCoins: Int = -1
+    ) {
         val cleaned = label.trim()
         if (cleaned.isBlank()) return
+        val minutes = if (timed) defaultMinutes.coerceIn(1, 180) else 0
         val next = _lightTracks.value + LightTrackDef(
             id = "custom-${System.currentTimeMillis()}",
             label = cleaned,
-            backing = backing,
-            defaultMinutes = if (backing == PracticeTrack.LIFE) 0 else 10
+            backing = if (timed) PracticeTrack.CULTIVATION else PracticeTrack.LIFE,
+            defaultMinutes = minutes,
+            showOnHome = timed,
+            showOnChecklist = true,
+            rewardFans = rewardFans,
+            rewardCoins = rewardCoins
         )
         saveLightTracks(next)
     }
 
-    fun updateLightTrack(id: String, label: String, defaultMinutes: Int) {
+    fun updateLightTrack(
+        id: String,
+        label: String,
+        defaultMinutes: Int,
+        rewardFans: Int = -1,
+        rewardCoins: Int = -1
+    ) {
         val cleaned = label.trim()
         if (cleaned.isBlank()) return
         val next = _lightTracks.value.map { def ->
             if (def.id != id) def
             else def.copy(
                 label = cleaned,
-                defaultMinutes = defaultMinutes.coerceIn(0, 180)
+                defaultMinutes = defaultMinutes.coerceIn(0, 180),
+                rewardFans = rewardFans,
+                rewardCoins = rewardCoins
             )
         }
         saveLightTracks(next)
     }
+
+    fun defaultLightRewardFans(): Int = profile.value.lightFans
+    fun defaultLightRewardCoins(): Int = profile.value.lightCoins
+    fun defaultChecklistRewardFans(): Int = profile.value.checklistFans
+    fun defaultChecklistRewardCoins(): Int = profile.value.checklistCoins
 
     fun deleteLightTrack(id: String) {
         val target = _lightTracks.value.firstOrNull { it.id == id } ?: return

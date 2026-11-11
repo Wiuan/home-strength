@@ -11,6 +11,7 @@ import com.homestrength.data.local.entity.RewardEntity
 import com.homestrength.data.local.entity.RewardRedemptionEntity
 import com.homestrength.data.local.entity.TraineeProfileEntity
 import com.homestrength.data.local.entity.WorkoutSessionEntity
+import com.homestrength.data.track.LightTrackCatalog
 import com.homestrength.domain.trainee.MonthReview
 import com.homestrength.domain.trainee.MonthReviewBuilder
 import com.homestrength.domain.trainee.PeriodReview
@@ -28,7 +29,8 @@ import java.time.YearMonth
 import java.time.ZoneId
 
 class TraineeRepository(
-    private val traineeDao: TraineeDao
+    private val traineeDao: TraineeDao,
+    private val lightTrackCatalog: LightTrackCatalog? = null
 ) {
     private val zone = ZoneId.systemDefault()
 
@@ -103,9 +105,7 @@ class TraineeRepository(
             if (track != null && track.isTimedLightTrack() && targetSec > 0) {
                 completeTimedLightViaChecklist(item, track, targetSec)
             } else {
-                val profile = getProfile()
-                val fans = profile.checklistFans
-                val coins = profile.checklistCoins
+                val (fans, coins) = resolveTrackRewards(item.title, track, timed = false)
                 award(fans, coins, energyDelta = 0)
                 traineeDao.updatePowerItem(
                     item.copy(
@@ -146,8 +146,7 @@ class TraineeRepository(
         targetSeconds: Int
     ) {
         val profile = getProfile()
-        val fans = profile.lightFans
-        val coins = profile.lightCoins
+        val (fans, coins) = resolveTrackRewards(item.title, track, timed = true)
         val seconds = targetSeconds.coerceAtLeast(0)
         val minutes = secondsToPracticedMinutes(seconds)
         val now = System.currentTimeMillis()
@@ -240,9 +239,16 @@ class TraineeRepository(
     ): LightPracticeEntity? {
         val current = traineeDao.getLightPractice(id) ?: return null
         if (current.completed) return current
-        val profile = getProfile()
-        val fans = profile.lightFans
-        val coins = profile.lightCoins
+        val linkedTitle = when {
+            powerListItemId > 0L -> getPowerItem(powerListItemId)?.title.orEmpty()
+            else -> getPowerItemByLinkedPractice(id)?.title.orEmpty()
+        }
+        val titleForReward = noteTitle.trim().ifBlank { linkedTitle }
+        val (fans, coins) = resolveTrackRewards(
+            title = titleForReward,
+            track = current.track,
+            timed = true
+        )
         val seconds = durationSeconds.coerceAtLeast(0)
         val minutes = secondsToPracticedMinutes(seconds)
         val updated = current.copy(
@@ -758,6 +764,20 @@ class TraineeRepository(
                 completedAt = if (markDone) System.currentTimeMillis() else 0L
             )
         )
+    }
+
+    private suspend fun resolveTrackRewards(
+        title: String,
+        track: PracticeTrack?,
+        timed: Boolean
+    ): Pair<Int, Int> {
+        val profile = getProfile()
+        val def = lightTrackCatalog?.findForTitle(title, track)
+        val defaultFans = if (timed) profile.lightFans else profile.checklistFans
+        val defaultCoins = if (timed) profile.lightCoins else profile.checklistCoins
+        val fans = def?.rewardFans?.takeIf { it >= 0 } ?: defaultFans
+        val coins = def?.rewardCoins?.takeIf { it >= 0 } ?: defaultCoins
+        return fans.coerceAtLeast(0) to coins.coerceAtLeast(0)
     }
 
     private suspend fun award(fans: Int, coins: Int, energyDelta: Int) {

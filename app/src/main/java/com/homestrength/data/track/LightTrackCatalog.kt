@@ -6,7 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * User-editable labels for light / checklist tracks. [backing] decides rewards & timers.
+ * User-editable light / checklist tracks. Peers of 算法/声乐/修养 on home.
+ * [backing] picks timer vs checklist-only; [rewardFans]/[rewardCoins] override profile defaults when >= 0.
  */
 data class LightTrackDef(
     val id: String,
@@ -15,7 +16,10 @@ data class LightTrackDef(
     val defaultMinutes: Int = 10,
     val showOnHome: Boolean = true,
     val showOnChecklist: Boolean = true,
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    /** -1 = use profile light/checklist defaults */
+    val rewardFans: Int = -1,
+    val rewardCoins: Int = -1
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -25,6 +29,8 @@ data class LightTrackDef(
         .put("showOnHome", showOnHome)
         .put("showOnChecklist", showOnChecklist)
         .put("locked", locked)
+        .put("rewardFans", rewardFans)
+        .put("rewardCoins", rewardCoins)
 
     fun defaultTitle(minutes: Int = defaultMinutes): String {
         val m = minutes.coerceAtLeast(0).let { if (it == 0) defaultMinutes else it }
@@ -33,6 +39,8 @@ data class LightTrackDef(
             else -> if (label.contains("分钟")) label else "$label ${m}分钟"
         }
     }
+
+    fun isTimed(): Boolean = backing != PracticeTrack.LIFE
 
     companion object {
         fun fromJson(o: JSONObject): LightTrackDef? {
@@ -46,7 +54,9 @@ data class LightTrackDef(
                 defaultMinutes = o.optInt("defaultMinutes", 10),
                 showOnHome = o.optBoolean("showOnHome", true),
                 showOnChecklist = o.optBoolean("showOnChecklist", true),
-                locked = o.optBoolean("locked", false)
+                locked = o.optBoolean("locked", false),
+                rewardFans = o.optInt("rewardFans", -1),
+                rewardCoins = o.optInt("rewardCoins", -1)
             )
         }
 
@@ -56,7 +66,14 @@ data class LightTrackDef(
             LightTrackDef("cultivation", "修养", PracticeTrack.CULTIVATION, defaultMinutes = 10, locked = true),
             LightTrackDef("reading", "阅读", PracticeTrack.CULTIVATION, defaultMinutes = 10),
             LightTrackDef("calligraphy", "书法", PracticeTrack.CULTIVATION, defaultMinutes = 10),
-            LightTrackDef("life", "生活", PracticeTrack.LIFE, defaultMinutes = 0, showOnHome = false, locked = true)
+            LightTrackDef(
+                "life",
+                "生活",
+                PracticeTrack.LIFE,
+                defaultMinutes = 0,
+                showOnHome = false,
+                locked = true
+            )
         )
     }
 }
@@ -83,12 +100,38 @@ class LightTrackCatalog(context: Context) {
         prefs.edit().putString(KEY, arr.toString()).apply()
     }
 
-    fun homeTracks(): List<LightTrackDef> = load().filter { it.showOnHome && it.backing != PracticeTrack.LIFE }
+    fun homeTracks(): List<LightTrackDef> =
+        load().filter { it.showOnHome && it.backing != PracticeTrack.LIFE }
 
     fun checklistTracks(): List<LightTrackDef> =
         load().filter { it.showOnChecklist }
 
     fun findById(id: String): LightTrackDef? = load().firstOrNull { it.id == id }
+
+    /**
+     * Match checklist / practice title to a track def (longest label wins).
+     */
+    fun findForTitle(title: String, track: PracticeTrack? = null): LightTrackDef? {
+        val t = title.trim()
+        if (t.isEmpty()) {
+            return track?.let { tr ->
+                load().firstOrNull { it.locked && it.backing == tr }
+            }
+        }
+        val byLabel = load()
+            .filter { def ->
+                t == def.label ||
+                    t.startsWith(def.label) ||
+                    def.label.isNotBlank() && t.contains(def.label)
+            }
+            .maxByOrNull { it.label.length }
+        if (byLabel != null) return byLabel
+        val canonical = when (track) {
+            PracticeTrack.READING, PracticeTrack.CALLIGRAPHY -> PracticeTrack.CULTIVATION
+            else -> track
+        } ?: return null
+        return load().firstOrNull { it.locked && it.backing == canonical }
+    }
 
     companion object {
         private const val PREFS = "light_track_catalog"
