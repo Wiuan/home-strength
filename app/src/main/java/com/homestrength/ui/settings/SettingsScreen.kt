@@ -76,6 +76,7 @@ fun SettingsScreen(
     var showRoomEditor by remember { mutableStateOf(false) }
     var showInstallPermission by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showNicknameEditor by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -118,6 +119,16 @@ fun SettingsScreen(
             subtitle = "训练 · 练习室 · 备份",
             onBack = onBack
         )
+
+        WeChatGroupLabel("档案")
+        WeChatGroup {
+            WeChatCell(
+                title = "昵称",
+                value = profile.nickname.ifBlank { "W" },
+                subtitle = "主页标题 · 同步后对方也能看到",
+                onClick = { showNicknameEditor = true }
+            )
+        }
 
         WeChatGroupLabel("训练")
         WeChatGroup {
@@ -352,6 +363,17 @@ fun SettingsScreen(
         )
     }
 
+    if (showNicknameEditor) {
+        NicknameEditorDialog(
+            current = profile.nickname,
+            onDismiss = { showNicknameEditor = false },
+            onSave = { name ->
+                viewModel.updateNickname(name)
+                showNicknameEditor = false
+            }
+        )
+    }
+
     if (showRoomEditor) {
         RoomSettingsDialog(
             room = room,
@@ -413,6 +435,65 @@ fun SettingsScreen(
             }
         )
     }
+}
+
+@Composable
+private fun NicknameEditorDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var draft by remember(current) { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("修改昵称", style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "最多 12 字 · 留空则恢复为 W",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { draft = it.take(12) },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 16.sp
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(36.dp)
+                        .border(
+                            0.5.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    decorationBox = { inner ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    "例如：太原 / 阿忻",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            inner()
+                        }
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(draft) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Composable

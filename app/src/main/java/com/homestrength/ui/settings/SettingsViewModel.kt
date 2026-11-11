@@ -283,6 +283,14 @@ class SettingsViewModel(
         }
     }
 
+    fun updateNickname(nickname: String) {
+        viewModelScope.launch {
+            val cleaned = nickname.trim().take(12)
+            traineeRepository.updateNickname(cleaned)
+            _messages.emit(if (cleaned.isBlank()) "昵称已重置为 W" else "昵称已改为 $cleaned")
+        }
+    }
+
     fun updateWeeklyGoal(goal: Int) {
         viewModelScope.launch {
             val current = repository.getSettings()
