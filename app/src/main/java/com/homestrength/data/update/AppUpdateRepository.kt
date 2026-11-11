@@ -90,17 +90,17 @@ class AppUpdateRepository(
             } else {
                 downloadApkFromUrl(resolveApkUrl(remote), outFile, onProgress)
             }
-            if (outFile.length() < 10_000L) {
-                outFile.delete()
-                error("下载文件过小，请确认 Gitee 上已上传 APK")
-            }
+            validateApkFile(outFile)
             onProgress(1f)
             outFile
         }
     }
 
     /**
-     * Private repos often reject [raw] URLs (HTTP 403). Contents API + download_url works with the same token.
+     * Private repos often reject [raw] URLs (HTTP 403). Contents API meta + [download_url] works with the same token.
+     *
+     * Never prefer base64 [content] for APKs: Gitee truncates Contents API body around 10 MiB,
+     * which yields a ZIP-looking but incomplete APK and system "解析软件包时出现问题".
      */
     private fun writeApkFromGiteeContents(
         path: String,
@@ -117,18 +117,61 @@ class AppUpdateRepository(
                 "&ref=${URLEncoder.encode(branch, "UTF-8")}"
         val body = httpGet(metaUrl)
         val json = JSONObject(body)
-        val b64 = json.optString("content", "").replace("\n", "")
-        if (b64.isNotBlank()) {
-            val bytes = Base64.decode(b64, Base64.DEFAULT)
-            FileOutputStream(outFile).use { it.write(bytes) }
-            onProgress(1f)
+        val expectedSize = json.optLong("size", -1L)
+        val downloadUrl = json.optString("download_url", "")
+        if (downloadUrl.isNotBlank()) {
+            downloadApkFromUrl(withAccessToken(downloadUrl), outFile, onProgress)
+            val got = outFile.length()
+            if (expectedSize > 0L && got != expectedSize) {
+                outFile.delete()
+                error("APK 大小不完整（$got / $expectedSize），请重试")
+            }
             return
         }
-        val downloadUrl = json.optString("download_url", "")
-        if (downloadUrl.isBlank()) {
+        // Tiny assets only — large APKs must not use truncated base64 content.
+        val b64 = json.optString("content", "").replace("\n", "")
+        if (b64.isBlank()) {
             error("Gitee 未返回 APK 下载地址，请确认 update/home-strength.apk 已上传")
         }
-        downloadApkFromUrl(withAccessToken(downloadUrl), outFile, onProgress)
+        if (expectedSize > SAFE_CONTENTS_BASE64_BYTES) {
+            error("APK 过大且无 download_url，无法用 Contents base64 下载（会被截断）")
+        }
+        val bytes = Base64.decode(b64, Base64.DEFAULT)
+        FileOutputStream(outFile).use { it.write(bytes) }
+        onProgress(1f)
+    }
+
+    private fun validateApkFile(file: File) {
+        if (!file.exists() || file.length() < 10_000L) {
+            file.delete()
+            error("下载文件过小，请确认 Gitee 上已上传 APK")
+        }
+        // Exact 10 MiB is the classic Gitee Contents API truncation size.
+        if (file.length() == GITEE_CONTENTS_TRUNCATE_BYTES) {
+            file.delete()
+            error("下载被截断（正好 10MB），请重试或检查更新逻辑")
+        }
+        val header = ByteArray(4)
+        file.inputStream().use { input ->
+            if (input.read(header) < 4) {
+                file.delete()
+                error("安装包头损坏")
+            }
+        }
+        val isZip =
+            header[0] == 0x50.toByte() &&
+                header[1] == 0x4B.toByte() &&
+                (header[2] == 0x03.toByte() || header[2] == 0x05.toByte() || header[2] == 0x07.toByte())
+        if (!isZip) {
+            file.delete()
+            error("下载内容不是 APK（非 ZIP 头），请检查 Gitee 令牌或网络")
+        }
+    }
+
+    companion object {
+        /** Gitee Contents API commonly truncates file body around this size. */
+        private const val GITEE_CONTENTS_TRUNCATE_BYTES = 10L * 1024L * 1024L
+        private const val SAFE_CONTENTS_BASE64_BYTES = 1L * 1024L * 1024L
     }
 
     private fun downloadApkFromUrl(
