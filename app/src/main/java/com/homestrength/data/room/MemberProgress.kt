@@ -14,7 +14,9 @@ data class RoomActivity(
     val track: String = "",
     val durationSec: Int = 0,
     /** False when only the calendar day is known (no real clock). */
-    val preciseTime: Boolean = true
+    val preciseTime: Boolean = true,
+    /** Chip label in feed — e.g. 阅读 instead of 修养. */
+    val trackDisplay: String = ""
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -24,6 +26,7 @@ data class RoomActivity(
         .put("track", track)
         .put("durationSec", durationSec)
         .put("preciseTime", preciseTime)
+        .put("trackDisplay", trackDisplay)
 
     companion object {
         fun fromJson(o: JSONObject): RoomActivity = RoomActivity(
@@ -33,6 +36,7 @@ data class RoomActivity(
             kind = o.optString("kind", "life"),
             track = o.optString("track"),
             durationSec = o.optInt("durationSec"),
+            trackDisplay = o.optString("trackDisplay", ""),
             // Old feeds that parked checklist at 20:00 are not real clocks.
             preciseTime = when {
                 o.has("preciseTime") -> o.optBoolean("preciseTime", true)

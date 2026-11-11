@@ -135,7 +135,9 @@ private fun FeedRow(item: RoomFeedItem) {
     } else {
         "—"
     }
-    val kindLabel = kindLabel(item.activity.kind)
+    val kindLabel = item.activity.trackDisplay.trim().ifBlank {
+        kindLabel(item.activity.kind)
+    }
     val duration = formatDuration(item.activity.durationSec)
 
     Row(

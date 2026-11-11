@@ -64,8 +64,10 @@ fun HomeStrengthNavHost(
             val vm: HomeViewModel = viewModel(
                 factory = HomeViewModel.factory(repository, traineeRepository)
             )
+            val app = LocalContext.current.applicationContext as HomeStrengthApp
             HomeScreen(
                 viewModel = vm,
+                lightTrackCatalog = app.container.lightTrackCatalog,
                 onStartWorkout = { navController.navigate(Routes.ModeSelect.route) },
                 onContinueWorkout = { sessionId ->
                     navController.navigate(Routes.ActiveWorkout.create(sessionId))
@@ -75,7 +77,8 @@ fun HomeStrengthNavHost(
                         Routes.LightPractice.create(
                             track = nav.track.name,
                             itemId = nav.itemId,
-                            targetSeconds = nav.targetSeconds
+                            targetSeconds = nav.targetSeconds,
+                            titleHint = nav.titleHint
                         )
                     )
                 },
@@ -129,12 +132,16 @@ fun HomeStrengthNavHost(
             arguments = listOf(
                 navArgument("track") { type = NavType.StringType },
                 navArgument("itemId") { type = NavType.LongType; defaultValue = 0L },
-                navArgument("targetSeconds") { type = NavType.IntType; defaultValue = 0 }
+                navArgument("targetSeconds") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("titleHint") { type = NavType.StringType; defaultValue = "-" }
             )
         ) { entry ->
             val trackName = entry.arguments?.getString("track") ?: return@composable
             val itemId = entry.arguments?.getLong("itemId") ?: 0L
             val targetSeconds = entry.arguments?.getInt("targetSeconds") ?: 0
+            val titleHint = Routes.LightPractice.decodeTitleHint(
+                entry.arguments?.getString("titleHint") ?: "-"
+            )
             val parsed = runCatching { PracticeTrack.valueOf(trackName) }.getOrNull()
             val track = when (parsed) {
                 PracticeTrack.ALGORITHM,
@@ -154,6 +161,7 @@ fun HomeStrengthNavHost(
                 traineeRepository = traineeRepository,
                 powerListItemId = itemId,
                 targetSeconds = targetSeconds,
+                titleHint = titleHint,
                 onDone = { _, _ ->
                     navController.popBackStack(Routes.Home.route, inclusive = false)
                 },
@@ -201,7 +209,8 @@ fun HomeStrengthNavHost(
                     traineeRepository,
                     app.container.backupRepository,
                     app.container.roomSyncRepository,
-                    app.container.appUpdateRepository
+                    app.container.appUpdateRepository,
+                    app.container.lightTrackCatalog
                 )
             )
             SettingsScreen(

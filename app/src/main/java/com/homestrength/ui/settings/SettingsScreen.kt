@@ -46,7 +46,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.TraineeProfileEntity
+import com.homestrength.data.track.LightTrackDef
 import com.homestrength.ui.components.CompactPageHeader
 import com.homestrength.ui.components.WeChatCell
 import com.homestrength.ui.components.WeChatGroup
@@ -70,6 +72,7 @@ fun SettingsScreen(
     val profile by viewModel.profile.collectAsStateWithLifecycle()
     val room by viewModel.room.collectAsStateWithLifecycle()
     val update by viewModel.update.collectAsStateWithLifecycle()
+    val lightTracks by viewModel.lightTracks.collectAsStateWithLifecycle()
     var editor by remember { mutableStateOf<SettingEditor?>(null) }
     var showRewardEditor by remember { mutableStateOf(false) }
     var showImportConfirm by remember { mutableStateOf(false) }
@@ -77,6 +80,7 @@ fun SettingsScreen(
     var showInstallPermission by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showNicknameEditor by remember { mutableStateOf(false) }
+    var showLightTrackEditor by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -127,6 +131,18 @@ fun SettingsScreen(
                 value = profile.nickname.ifBlank { "W" },
                 subtitle = "主页标题 · 同步后对方也能看到",
                 onClick = { showNicknameEditor = true }
+            )
+        }
+
+        WeChatGroupLabel("轻轨轨道")
+        WeChatGroup {
+            WeChatCell(
+                title = "管理轨道",
+                subtitle = "改名称、加阅读/书法等 · 首页与清单同步",
+                onClick = {
+                    viewModel.reloadLightTracks()
+                    showLightTrackEditor = true
+                }
             )
         }
 
@@ -363,6 +379,16 @@ fun SettingsScreen(
         )
     }
 
+    if (showLightTrackEditor) {
+        LightTrackEditorDialog(
+            tracks = lightTracks,
+            onDismiss = { showLightTrackEditor = false },
+            onAdd = viewModel::addLightTrack,
+            onUpdate = viewModel::updateLightTrack,
+            onDelete = viewModel::deleteLightTrack
+        )
+    }
+
     if (showNicknameEditor) {
         NicknameEditorDialog(
             current = profile.nickname,
@@ -435,6 +461,156 @@ fun SettingsScreen(
             }
         )
     }
+}
+
+@Composable
+private fun LightTrackEditorDialog(
+    tracks: List<LightTrackDef>,
+    onDismiss: () -> Unit,
+    onAdd: (label: String, backing: PracticeTrack) -> Unit,
+    onUpdate: (id: String, label: String, defaultMinutes: Int) -> Unit,
+    onDelete: (id: String) -> Unit
+) {
+    var newLabel by remember { mutableStateOf("") }
+    var newBacking by remember { mutableStateOf(PracticeTrack.CULTIVATION) }
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var editLabel by remember { mutableStateOf("") }
+    var editMinutes by remember { mutableStateOf("10") }
+    val backingOptions = listOf(
+        PracticeTrack.CULTIVATION to "修养类",
+        PracticeTrack.ALGORITHM to "算法类",
+        PracticeTrack.VOCAL to "声乐类",
+        PracticeTrack.LIFE to "生活类"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("管理轻轨轨道", style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                Text(
+                    "显示名称可自定义；类型决定奖励与计时。内置轨道不能删。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                WeChatGroupLabel("现有轨道")
+                WeChatGroup {
+                    tracks.forEachIndexed { index, def ->
+                        if (editingId == def.id) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                RoomTextRow("名称", editLabel) { editLabel = it.take(12) }
+                                RoomTextRow("默认分钟", editMinutes) {
+                                    editMinutes = it.filter(Char::isDigit).take(3)
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(
+                                        onClick = {
+                                            onUpdate(
+                                                def.id,
+                                                editLabel,
+                                                editMinutes.toIntOrNull() ?: def.defaultMinutes
+                                            )
+                                            editingId = null
+                                        }
+                                    ) { Text("保存") }
+                                    TextButton(onClick = { editingId = null }) { Text("取消") }
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(def.label, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "${backingLabel(def.backing)} · 默认 ${def.defaultMinutes} 分" +
+                                            if (def.locked) " · 内置" else "",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        editingId = def.id
+                                        editLabel = def.label
+                                        editMinutes = def.defaultMinutes.toString()
+                                    }
+                                ) { Text("改") }
+                                if (!def.locked) {
+                                    TextButton(onClick = { onDelete(def.id) }) { Text("删") }
+                                }
+                            }
+                        }
+                        if (index < tracks.lastIndex) WeChatInsetDivider()
+                    }
+                }
+
+                WeChatGroupLabel("新建轨道")
+                WeChatGroup {
+                    RoomTextRow("名称", newLabel) { newLabel = it.take(12) }
+                    WeChatInsetDivider()
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                        Text(
+                            "类型",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            backingOptions.forEach { (track, label) ->
+                                FilterChip(
+                                    selected = newBacking == track,
+                                    onClick = { newBacking = track },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                    }
+                    WeChatInsetDivider()
+                    WeChatCell(
+                        title = "添加",
+                        subtitle = if (newLabel.isBlank()) "先写名称" else "加入首页与清单",
+                        showChevron = false,
+                        onClick = {
+                            if (newLabel.isNotBlank()) {
+                                onAdd(newLabel, newBacking)
+                                newLabel = ""
+                            }
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        }
+    )
+}
+
+private fun backingLabel(track: PracticeTrack): String = when (track) {
+    PracticeTrack.ALGORITHM -> "算法类"
+    PracticeTrack.VOCAL -> "声乐类"
+    PracticeTrack.CULTIVATION,
+    PracticeTrack.READING,
+    PracticeTrack.CALLIGRAPHY -> "修养类"
+    PracticeTrack.LIFE -> "生活类"
+    else -> track.name
 }
 
 @Composable

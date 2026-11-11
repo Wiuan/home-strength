@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homestrength.data.local.entity.PowerItemStatus
 import com.homestrength.data.local.entity.PowerListItemEntity
 import com.homestrength.data.local.entity.PracticeTrack
+import com.homestrength.data.track.LightTrackCatalog
 import com.homestrength.data.local.entity.WorkoutType
 import com.homestrength.data.repository.TraineeRepository
 import com.homestrength.domain.trainee.TraineeGrade
@@ -67,14 +68,8 @@ import java.time.format.DateTimeFormatter
 data class LightPracticeNav(
     val track: PracticeTrack,
     val itemId: Long = 0L,
-    val targetSeconds: Int = 0
-)
-
-private val ChecklistTracks = listOf(
-    PracticeTrack.LIFE,
-    PracticeTrack.CULTIVATION,
-    PracticeTrack.ALGORITHM,
-    PracticeTrack.VOCAL
+    val targetSeconds: Int = 0,
+    val titleHint: String = ""
 )
 
 private val DurationPresetsMinutes = listOf(0, 10, 15, 25)
@@ -102,6 +97,7 @@ private fun resolveDraftMinutes(draftDurationMin: Int, customDurationText: Strin
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    lightTrackCatalog: LightTrackCatalog,
     onStartWorkout: () -> Unit,
     onContinueWorkout: (Long) -> Unit,
     onOpenLightPractice: (LightPracticeNav) -> Unit,
@@ -114,12 +110,20 @@ fun HomeScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var draftItem by remember { mutableStateOf("") }
     var draftTrack by remember { mutableStateOf(PracticeTrack.LIFE) }
+    var draftTrackDefId by remember { mutableStateOf<String?>("life") }
     var draftDurationMin by remember { mutableStateOf(0) }
     var customDurationText by remember { mutableStateOf("") }
+    val checklistTracks = lightTrackCatalog.checklistTracks()
+    val homeTracks = lightTrackCatalog.homeTracks()
     var celebratingGrade by remember { mutableStateOf<TraineeGrade?>(null) }
     val scope = rememberCoroutineScope()
     val draftMinutes = resolveDraftMinutes(draftDurationMin, customDurationText)
-    val titleHint = defaultChecklistTitle(draftTrack, draftMinutes)
+    val selectedDef = checklistTracks.firstOrNull { it.id == draftTrackDefId }
+    val titleHint = when {
+        draftItem.isNotBlank() -> draftItem.trim()
+        selectedDef != null -> selectedDef.defaultTitle(draftMinutes)
+        else -> defaultChecklistTitle(draftTrack, draftMinutes)
+    }
     LaunchedEffect(viewModel) {
         viewModel.gradeUpgrade.collect { celebratingGrade = it }
     }
@@ -193,7 +197,8 @@ fun HomeScreen(
                                     LightPracticeNav(
                                         track = TraineeRepository.canonicalTrack(track),
                                         itemId = item.id,
-                                        targetSeconds = item.targetDurationSeconds
+                                        targetSeconds = item.targetDurationSeconds,
+                                        titleHint = item.title
                                     )
                                 )
                             }
@@ -216,19 +221,22 @@ fun HomeScreen(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            ChecklistTracks.forEach { track ->
+                            checklistTracks.forEach { def ->
                                 CompactChip(
-                                    selected = draftTrack == track,
-                                    label = TraineeRepository.trackLabel(track),
+                                    selected = draftTrackDefId == def.id,
+                                    label = def.label,
                                     onClick = {
-                                        draftTrack = track
-                                        if (track == PracticeTrack.LIFE) {
+                                        draftTrack = def.backing
+                                        draftTrackDefId = def.id
+                                        if (def.backing == PracticeTrack.LIFE) {
                                             draftDurationMin = 0
                                             customDurationText = ""
-                                        } else if (
-                                            draftDurationMin == 0 && customDurationText.isBlank()
-                                        ) {
-                                            draftDurationMin = 10
+                                        } else {
+                                            draftDurationMin = def.defaultMinutes.coerceAtLeast(1)
+                                            customDurationText = ""
+                                        }
+                                        if (draftItem.isBlank()) {
+                                            draftItem = def.defaultTitle(draftDurationMin)
                                         }
                                     }
                                 )
@@ -340,13 +348,14 @@ fun HomeScreen(
                         viewModel.addPowerItem("力量训练", PracticeTrack.STRENGTH)
                         onStartWorkout()
                     }
-                    listOf(
-                        PracticeTrack.ALGORITHM,
-                        PracticeTrack.VOCAL,
-                        PracticeTrack.CULTIVATION
-                    ).forEach { track ->
-                        TrackPill(TraineeRepository.trackLabel(track)) {
-                            onOpenLightPractice(LightPracticeNav(track = track))
+                    homeTracks.forEach { def ->
+                        TrackPill(def.label) {
+                            onOpenLightPractice(
+                                LightPracticeNav(
+                                    track = TraineeRepository.canonicalTrack(def.backing),
+                                    titleHint = def.defaultTitle(def.defaultMinutes)
+                                )
+                            )
                         }
                     }
                     val sleptToday = state.profile.sleepDate == LocalDate.now().toString()

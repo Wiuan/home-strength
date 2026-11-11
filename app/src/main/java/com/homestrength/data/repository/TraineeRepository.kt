@@ -162,7 +162,8 @@ class TraineeRepository(
                     durationSeconds = seconds,
                     completed = true,
                     fansEarned = fans,
-                    coinsEarned = coins
+                    coinsEarned = coins,
+                    noteTitle = item.title.trim().ifBlank { existing.noteTitle }
                 )
             )
             existing.id
@@ -172,6 +173,7 @@ class TraineeRepository(
                     track = track,
                     startedAt = now,
                     durationSeconds = seconds,
+                    noteTitle = item.title.trim(),
                     completed = true,
                     fansEarned = fans,
                     coinsEarned = coins

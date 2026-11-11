@@ -12,6 +12,9 @@ import com.homestrength.data.repository.HomeStrengthRepository
 import com.homestrength.data.repository.TraineeRepository
 import com.homestrength.data.room.RoomPrefs
 import com.homestrength.data.room.RoomSyncRepository
+import com.homestrength.data.local.entity.PracticeTrack
+import com.homestrength.data.track.LightTrackCatalog
+import com.homestrength.data.track.LightTrackDef
 import com.homestrength.data.update.AppUpdateRepository
 import com.homestrength.data.update.RemoteAppVersion
 import com.homestrength.data.update.UpdateCheckResult
@@ -52,7 +55,8 @@ class SettingsViewModel(
     private val traineeRepository: TraineeRepository,
     private val backupRepository: BackupRepository,
     private val roomSyncRepository: RoomSyncRepository,
-    private val appUpdateRepository: AppUpdateRepository
+    private val appUpdateRepository: AppUpdateRepository,
+    private val lightTrackCatalog: LightTrackCatalog
 ) : ViewModel() {
 
     private val roomPrefs: RoomPrefs = roomSyncRepository.prefs()
@@ -72,6 +76,9 @@ class SettingsViewModel(
         )
     )
     val update: StateFlow<UpdateUiState> = _update.asStateFlow()
+
+    private val _lightTracks = MutableStateFlow(lightTrackCatalog.load())
+    val lightTracks: StateFlow<List<LightTrackDef>> = _lightTracks.asStateFlow()
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -283,6 +290,50 @@ class SettingsViewModel(
         }
     }
 
+    fun reloadLightTracks() {
+        _lightTracks.value = lightTrackCatalog.load()
+    }
+
+    fun saveLightTracks(tracks: List<LightTrackDef>) {
+        lightTrackCatalog.save(tracks)
+        _lightTracks.value = lightTrackCatalog.load()
+        viewModelScope.launch { _messages.emit("轻轨轨道已保存") }
+    }
+
+    fun addLightTrack(label: String, backing: PracticeTrack) {
+        val cleaned = label.trim()
+        if (cleaned.isBlank()) return
+        val next = _lightTracks.value + LightTrackDef(
+            id = "custom-${System.currentTimeMillis()}",
+            label = cleaned,
+            backing = backing,
+            defaultMinutes = if (backing == PracticeTrack.LIFE) 0 else 10
+        )
+        saveLightTracks(next)
+    }
+
+    fun updateLightTrack(id: String, label: String, defaultMinutes: Int) {
+        val cleaned = label.trim()
+        if (cleaned.isBlank()) return
+        val next = _lightTracks.value.map { def ->
+            if (def.id != id) def
+            else def.copy(
+                label = cleaned,
+                defaultMinutes = defaultMinutes.coerceIn(0, 180)
+            )
+        }
+        saveLightTracks(next)
+    }
+
+    fun deleteLightTrack(id: String) {
+        val target = _lightTracks.value.firstOrNull { it.id == id } ?: return
+        if (target.locked) {
+            viewModelScope.launch { _messages.emit("内置轨道不能删除") }
+            return
+        }
+        saveLightTracks(_lightTracks.value.filter { it.id != id })
+    }
+
     fun updateNickname(nickname: String) {
         viewModelScope.launch {
             val cleaned = nickname.trim().take(12)
@@ -350,7 +401,8 @@ class SettingsViewModel(
             traineeRepository: TraineeRepository,
             backupRepository: BackupRepository,
             roomSyncRepository: RoomSyncRepository,
-            appUpdateRepository: AppUpdateRepository
+            appUpdateRepository: AppUpdateRepository,
+            lightTrackCatalog: LightTrackCatalog
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -360,7 +412,8 @@ class SettingsViewModel(
                         traineeRepository,
                         backupRepository,
                         roomSyncRepository,
-                        appUpdateRepository
+                        appUpdateRepository,
+                        lightTrackCatalog
                     ) as T
                 }
             }

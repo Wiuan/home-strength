@@ -123,13 +123,23 @@ class RoomSyncRepository(
             feedStart.toString(),
             endExclusive.toString()
         )
+        val powerByPracticeId = powerDone
+            .filter { it.linkedPracticeId > 0L }
+            .associateBy { it.linkedPracticeId }
 
         val out = mutableListOf<RoomActivity>()
 
         lights.forEach { practice ->
             val track = TraineeRepository.canonicalTrack(practice.track)
-            val label = TraineeRepository.trackLabel(track)
-            val title = practice.noteTitle.trim().ifBlank { label }
+            val linked = powerByPracticeId[practice.id]
+            val title = activityTitle(
+                practiceTitle = practice.noteTitle.trim(),
+                checklistTitle = linked?.title?.trim().orEmpty(),
+                note = practice.note.trim(),
+                track = track,
+                durationSec = practice.durationSeconds
+            )
+            val generic = TraineeRepository.trackLabel(track)
             out += RoomActivity(
                 id = "light-${practice.id}",
                 at = practice.startedAt,
@@ -142,7 +152,9 @@ class RoomSyncRepository(
                 },
                 track = track.name,
                 durationSec = practice.durationSeconds.coerceAtLeast(0),
-                preciseTime = true
+                preciseTime = true,
+                // Chip shows category; title shows specific checklist text (e.g. 阅读 10分钟).
+                trackDisplay = if (title == generic) "" else generic
             )
         }
 
@@ -177,17 +189,19 @@ class RoomSyncRepository(
                 day.atTime(LocalTime.NOON).atZone(zone).toInstant().toEpochMilli()
             }
             val track = item.track?.let(TraineeRepository::canonicalTrack)
+            val listTitle = item.title.trim().ifBlank { TraineeRepository.trackLabel(track) }
             out += RoomActivity(
                 id = "power-${item.id}",
                 at = at,
-                title = item.title.ifBlank { TraineeRepository.trackLabel(track) },
+                title = listTitle,
                 kind = when (track) {
                     PracticeTrack.SLEEP -> "sleep"
                     PracticeTrack.STRENGTH -> "strength"
                     else -> "checklist"
                 },
                 track = track?.name.orEmpty(),
-                preciseTime = preciseAt > 0L
+                preciseTime = preciseAt > 0L,
+                trackDisplay = TraineeRepository.trackLabel(track)
             )
         }
 
@@ -261,6 +275,27 @@ class RoomSyncRepository(
             compareByDescending<RoomFeedItem> { it.activity.at }
                 .thenBy { it.memberId }
         )
+    }
+
+    private fun activityTitle(
+        practiceTitle: String,
+        checklistTitle: String,
+        note: String,
+        track: PracticeTrack,
+        durationSec: Int
+    ): String {
+        val generic = TraineeRepository.trackLabel(track)
+        val primary = when {
+            practiceTitle.isNotBlank() && practiceTitle != generic -> practiceTitle
+            checklistTitle.isNotBlank() -> checklistTitle
+            note.isNotBlank() -> note
+            else -> generic
+        }
+        if (durationSec <= 0 || primary.contains("分钟") || primary.contains("分")) {
+            return primary
+        }
+        val min = (durationSec + 59) / 60
+        return if (primary == generic) "$generic ${min}分钟" else primary
     }
 
     companion object {

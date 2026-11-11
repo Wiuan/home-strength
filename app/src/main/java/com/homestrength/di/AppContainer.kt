@@ -7,6 +7,7 @@ import com.homestrength.data.repository.HomeStrengthRepository
 import com.homestrength.data.repository.TraineeRepository
 import com.homestrength.data.room.RoomPrefs
 import com.homestrength.data.room.RoomSyncRepository
+import com.homestrength.data.track.LightTrackCatalog
 import com.homestrength.data.update.AppUpdateRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -48,4 +49,6 @@ class AppContainer(context: Context) {
         context = appContext,
         prefs = roomPrefs
     )
+
+    val lightTrackCatalog = LightTrackCatalog(appContext)
 }
