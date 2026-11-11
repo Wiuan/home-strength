@@ -97,10 +97,9 @@ class AppUpdateRepository(
     }
 
     /**
-     * Private repos often reject [raw] URLs (HTTP 403). Contents API meta + [download_url] works with the same token.
-     *
-     * Never prefer base64 [content] for APKs: Gitee truncates Contents API body around 10 MiB,
-     * which yields a ZIP-looking but incomplete APK and system "解析软件包时出现问题".
+     * Private / >10MB files: Gitee Contents [download_url] often 403 (CDN session "Access denied").
+     * Prefer authenticated [raw] API with Bearer, then Blobs API by sha. Never use Contents base64
+     * for large APKs (truncated around 10 MiB → install parse error).
      */
     private fun writeApkFromGiteeContents(
         path: String,
@@ -118,27 +117,84 @@ class AppUpdateRepository(
         val body = httpGet(metaUrl)
         val json = JSONObject(body)
         val expectedSize = json.optLong("size", -1L)
+        val sha = json.optString("sha", "")
         val downloadUrl = json.optString("download_url", "")
-        if (downloadUrl.isNotBlank()) {
-            downloadApkFromUrl(withAccessToken(downloadUrl), outFile, onProgress)
-            val got = outFile.length()
-            if (expectedSize > 0L && got != expectedSize) {
-                outFile.delete()
-                error("APK 大小不完整（$got / $expectedSize），请重试")
-            }
+
+        val errors = mutableListOf<String>()
+
+        // 1) Official raw API (works for private + large with token).
+        val rawApi =
+            "https://gitee.com/api/v5/repos/${prefs.owner}/${prefs.repo}/raw/$encodedPath" +
+                "?ref=${URLEncoder.encode(branch, "UTF-8")}" +
+                "&access_token=${URLEncoder.encode(prefs.accessToken, "UTF-8")}"
+        runCatching {
+            downloadApkAuthenticated(rawApi, outFile, onProgress)
+            assertExpectedSize(outFile, expectedSize)
             return
+        }.onFailure { errors += "raw: ${it.message}" }
+
+        // 2) Git blob by sha (full base64; avoid Contents truncation).
+        if (sha.isNotBlank()) {
+            runCatching {
+                writeApkFromGiteeBlob(sha, outFile, expectedSize, onProgress)
+                return
+            }.onFailure { errors += "blob: ${it.message}" }
         }
-        // Tiny assets only — large APKs must not use truncated base64 content.
+
+        // 3) Last resort: download_url with Bearer + redirect-safe follow.
+        if (downloadUrl.isNotBlank()) {
+            runCatching {
+                downloadApkAuthenticated(downloadUrl, outFile, onProgress)
+                assertExpectedSize(outFile, expectedSize)
+                return
+            }.onFailure { errors += "cdn: ${it.message}" }
+        }
+
+        // Tiny files only via Contents content field.
         val b64 = json.optString("content", "").replace("\n", "")
-        if (b64.isBlank()) {
-            error("Gitee 未返回 APK 下载地址，请确认 update/home-strength.apk 已上传")
+        if (b64.isNotBlank() && expectedSize in 1..SAFE_CONTENTS_BASE64_BYTES) {
+            val bytes = Base64.decode(b64, Base64.DEFAULT)
+            if (expectedSize <= 0L || bytes.size.toLong() == expectedSize) {
+                FileOutputStream(outFile).use { it.write(bytes) }
+                onProgress(1f)
+                return
+            }
         }
-        if (expectedSize > SAFE_CONTENTS_BASE64_BYTES) {
-            error("APK 过大且无 download_url，无法用 Contents base64 下载（会被截断）")
-        }
+
+        outFile.delete()
+        error(errors.lastOrNull() ?: "无法下载 APK，请确认已上传且令牌有效")
+    }
+
+    private fun writeApkFromGiteeBlob(
+        sha: String,
+        outFile: File,
+        expectedSize: Long,
+        onProgress: (Float) -> Unit
+    ) {
+        val url =
+            "https://gitee.com/api/v5/repos/${prefs.owner}/${prefs.repo}/git/blobs/$sha" +
+                "?access_token=${URLEncoder.encode(prefs.accessToken, "UTF-8")}"
+        val body = httpGet(url, readTimeoutMs = 300_000)
+        val json = JSONObject(body)
+        val b64 = json.optString("content", "").replace("\n", "")
+        if (b64.isBlank()) error("Blob 无内容")
         val bytes = Base64.decode(b64, Base64.DEFAULT)
+        if (expectedSize > 0L && bytes.size.toLong() != expectedSize) {
+            error("Blob 大小不完整（${bytes.size} / $expectedSize）")
+        }
+        if (bytes.size.toLong() == GITEE_CONTENTS_TRUNCATE_BYTES) {
+            error("Blob 疑似被截断（正好 10MB）")
+        }
         FileOutputStream(outFile).use { it.write(bytes) }
         onProgress(1f)
+    }
+
+    private fun assertExpectedSize(file: File, expectedSize: Long) {
+        val got = file.length()
+        if (expectedSize > 0L && got != expectedSize) {
+            file.delete()
+            error("APK 大小不完整（$got / $expectedSize），请重试")
+        }
     }
 
     private fun validateApkFile(file: File) {
@@ -172,6 +228,7 @@ class AppUpdateRepository(
         /** Gitee Contents API commonly truncates file body around this size. */
         private const val GITEE_CONTENTS_TRUNCATE_BYTES = 10L * 1024L * 1024L
         private const val SAFE_CONTENTS_BASE64_BYTES = 1L * 1024L * 1024L
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
     }
 
     private fun downloadApkFromUrl(
@@ -179,37 +236,70 @@ class AppUpdateRepository(
         outFile: File,
         onProgress: (Float) -> Unit
     ) {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 20_000
-            readTimeout = 300_000
-            instanceFollowRedirects = true
-            setRequestProperty("Accept", "*/*")
-        }
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                val err = conn.errorStream?.bufferedReader()?.readText()?.take(200).orEmpty()
-                error("下载失败 HTTP $code ${err.take(120)}")
+        downloadApkAuthenticated(url, outFile, onProgress)
+    }
+
+    /**
+     * Follow redirects manually and re-send Bearer on each hop — auto-follow drops auth and
+     * Gitee CDN then returns HTTP 403 Access denied.
+     */
+    private fun downloadApkAuthenticated(
+        url: String,
+        outFile: File,
+        onProgress: (Float) -> Unit
+    ) {
+        var current = url.trim()
+        repeat(6) { hop ->
+            val conn = (URL(current).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 20_000
+                readTimeout = 300_000
+                setRequestProperty("Accept", "*/*")
+                setRequestProperty("Authorization", "Bearer ${prefs.accessToken}")
             }
-            val total = conn.contentLengthLong.coerceAtLeast(-1L)
-            BufferedInputStream(conn.inputStream).use { input ->
-                FileOutputStream(outFile).use { output ->
-                    val buf = ByteArray(8192)
-                    var readTotal = 0L
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n <= 0) break
-                        output.write(buf, 0, n)
-                        readTotal += n
-                        if (total > 0L) {
-                            onProgress((readTotal.toFloat() / total.toFloat()).coerceIn(0f, 1f))
-                        }
-                    }
-                    output.flush()
+            try {
+                val code = conn.responseCode
+                if (code in REDIRECT_CODES) {
+                    val loc = conn.getHeaderField("Location")
+                        ?: error("下载失败 HTTP $code（无 Location）")
+                    current = resolveRedirect(current, loc)
+                    return@repeat
                 }
+                if (code !in 200..299) {
+                    val err = conn.errorStream?.bufferedReader()?.readText()?.take(200).orEmpty()
+                    error("下载失败 HTTP $code ${err.take(120)}")
+                }
+                val total = conn.contentLengthLong.coerceAtLeast(-1L)
+                BufferedInputStream(conn.inputStream).use { input ->
+                    FileOutputStream(outFile).use { output ->
+                        val buf = ByteArray(8192)
+                        var readTotal = 0L
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            output.write(buf, 0, n)
+                            readTotal += n
+                            if (total > 0L) {
+                                onProgress((readTotal.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+                return
+            } finally {
+                conn.disconnect()
             }
-        } finally {
-            conn.disconnect()
+        }
+        error("下载失败：重定向过多")
+    }
+
+    private fun resolveRedirect(fromUrl: String, location: String): String {
+        val raw = location.trim()
+        return when {
+            raw.startsWith("http://", ignoreCase = true) ||
+                raw.startsWith("https://", ignoreCase = true) -> raw
+            else -> URL(URL(fromUrl), raw).toString()
         }
     }
 
@@ -276,31 +366,30 @@ class AppUpdateRepository(
 
     private fun resolveApkUrl(remote: RemoteAppVersion): String {
         if (remote.apkUrl.isNotBlank()) {
-            val raw = remote.apkUrl.trim()
-            return if (raw.contains("access_token=")) {
-                raw
-            } else {
-                val sep = if (raw.contains("?")) "&" else "?"
-                raw + sep + "access_token=" + URLEncoder.encode(prefs.accessToken, "UTF-8")
-            }
+            return withAccessToken(remote.apkUrl.trim())
         }
         val branch = prefs.branch.ifBlank { "master" }
-        val path = remote.apkPath.trim().trimStart('/')
-        return "https://gitee.com/${prefs.owner}/${prefs.repo}/raw/$branch/$path" +
-            "?access_token=" + URLEncoder.encode(prefs.accessToken, "UTF-8")
+        val path = remote.apkPath.trim().trimStart('/').split("/").joinToString("/") {
+            URLEncoder.encode(it, "UTF-8")
+        }
+        // Prefer API raw — site /raw/ often 403 for private large files.
+        return "https://gitee.com/api/v5/repos/${prefs.owner}/${prefs.repo}/raw/$path" +
+            "?ref=${URLEncoder.encode(branch, "UTF-8")}" +
+            "&access_token=" + URLEncoder.encode(prefs.accessToken, "UTF-8")
     }
 
-    private fun httpGet(url: String): String {
+    private fun httpGet(url: String, readTimeoutMs: Int = 20_000): String {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 15_000
-            readTimeout = 20_000
+            readTimeout = readTimeoutMs
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("Authorization", "Bearer ${prefs.accessToken}")
         }
         try {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            val text = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (code !in 200..299) error("Gitee HTTP $code: ${text.take(200)}")
             return text
         } finally {
