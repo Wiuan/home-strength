@@ -91,7 +91,8 @@ class TraineeRepository(
                     rewardCoins = 0,
                     practicedMinutes = 0,
                     linkedPracticeId = 0,
-                    completedViaPractice = false
+                    completedViaPractice = false,
+                    completedAt = 0L
                 )
             )
         } else {
@@ -111,7 +112,8 @@ class TraineeRepository(
                         status = PowerItemStatus.DONE,
                         rewardFans = fans,
                         rewardCoins = coins,
-                        completedViaPractice = false
+                        completedViaPractice = false,
+                        completedAt = System.currentTimeMillis()
                     )
                 )
             }
@@ -184,7 +186,8 @@ class TraineeRepository(
                 rewardCoins = coins,
                 practicedMinutes = minutes.coerceAtLeast(item.practicedMinutes),
                 linkedPracticeId = practiceId,
-                completedViaPractice = true
+                completedViaPractice = true,
+                completedAt = now
             )
         )
     }
@@ -301,7 +304,8 @@ class TraineeRepository(
                 rewardCoins = rewardCoins,
                 practicedMinutes = practicedMinutes.coerceAtLeast(item.practicedMinutes),
                 linkedPracticeId = practiceId,
-                completedViaPractice = true
+                completedViaPractice = true,
+                completedAt = System.currentTimeMillis()
             )
         )
     }
@@ -415,6 +419,12 @@ class TraineeRepository(
 
     fun observeRecentLightPractices(limit: Int = 12): Flow<List<LightPracticeEntity>> =
         traineeDao.observeRecentLightPractices(limit)
+
+    suspend fun getCompletedLightInRange(startMillis: Long, endMillis: Long): List<LightPracticeEntity> =
+        traineeDao.getCompletedLightInRange(startMillis, endMillis)
+
+    suspend fun getDonePowerItemsInRange(startDay: String, endDayExclusive: String): List<PowerListItemEntity> =
+        traineeDao.getDonePowerItemsInRange(startDay, endDayExclusive)
 
     fun observePeriodGoals(period: PlanPeriod): Flow<List<PeriodGoalEntity>> =
         traineeDao.observePeriodGoals(period.kind, period.key)
@@ -723,7 +733,8 @@ class TraineeRepository(
                         practicedMinutes = practicedMinutes.coerceAtLeast(existing.practicedMinutes),
                         linkedPracticeId = linkedPracticeId.takeIf { it > 0L }
                             ?: existing.linkedPracticeId,
-                        completedViaPractice = completedViaPractice
+                        completedViaPractice = completedViaPractice,
+                        completedAt = System.currentTimeMillis()
                     )
                 )
             }
@@ -741,7 +752,8 @@ class TraineeRepository(
                 rewardCoins = if (markDone) rewardCoins else 0,
                 practicedMinutes = practicedMinutes,
                 linkedPracticeId = linkedPracticeId,
-                completedViaPractice = completedViaPractice
+                completedViaPractice = completedViaPractice,
+                completedAt = if (markDone) System.currentTimeMillis() else 0L
             )
         )
     }

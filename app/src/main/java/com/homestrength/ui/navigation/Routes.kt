@@ -30,4 +30,5 @@ sealed class Routes(val route: String) {
     }
     data object Welfare : Routes("welfare")
     data object Profile : Routes("profile")
+    data object RoomFeed : Routes("room/feed")
 }

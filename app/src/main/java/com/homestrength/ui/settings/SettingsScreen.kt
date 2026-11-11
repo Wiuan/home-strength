@@ -23,7 +23,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,6 +40,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,9 +68,14 @@ fun SettingsScreen(
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val profile by viewModel.profile.collectAsStateWithLifecycle()
+    val room by viewModel.room.collectAsStateWithLifecycle()
+    val update by viewModel.update.collectAsStateWithLifecycle()
     var editor by remember { mutableStateOf<SettingEditor?>(null) }
     var showRewardEditor by remember { mutableStateOf(false) }
     var showImportConfirm by remember { mutableStateOf(false) }
+    var showRoomEditor by remember { mutableStateOf(false) }
+    var showInstallPermission by remember { mutableStateOf(false) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -89,6 +98,12 @@ fun SettingsScreen(
             Process.killProcess(Process.myPid())
         }
     }
+    LaunchedEffect(viewModel) {
+        viewModel.needInstallPermission.collect { showInstallPermission = true }
+    }
+    LaunchedEffect(update.available) {
+        if (update.available != null) showUpdateDialog = true
+    }
 
     Column(
         modifier = Modifier
@@ -100,7 +115,7 @@ fun SettingsScreen(
     ) {
         CompactPageHeader(
             title = "设置",
-            subtitle = "训练 · 奖励 · 备份",
+            subtitle = "训练 · 练习室 · 备份",
             onBack = onBack
         )
 
@@ -163,6 +178,83 @@ fun SettingsScreen(
             WeChatCell(title = "我的弹力带", showDivider = true, onClick = onOpenBands)
             WeChatCell(title = "Workout A", showDivider = true, onClick = onOpenPlanA)
             WeChatCell(title = "Workout B", onClick = onOpenPlanB)
+        }
+
+        WeChatGroupLabel("双人练习室")
+        WeChatGroup {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("开启同步", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (room.enabled) "已开启 · 进度会推到 Gitee" else "关闭时不同步",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                Switch(
+                    checked = room.enabled,
+                    onCheckedChange = viewModel::setRoomEnabled
+                )
+            }
+            WeChatInsetDivider()
+            WeChatCell(
+                title = "填写令牌与成员",
+                subtitle = when {
+                    room.accessToken.isNotBlank() && room.enabled ->
+                        "${room.owner}/${room.repo} · ${room.myMemberId}"
+                    room.accessToken.isNotBlank() -> "令牌已填 · 打开上方开关即可"
+                    else -> "粘贴 Gitee 私人令牌（只存本机）"
+                },
+                showDivider = true,
+                onClick = { showRoomEditor = true }
+            )
+            WeChatCell(
+                title = if (room.syncing) "同步中…" else "立即同步并拉取对方",
+                subtitle = "档案页可看日 / 周 / 月对比",
+                onClick = { if (!room.syncing) viewModel.testRoomSync() }
+            )
+        }
+
+        WeChatGroupLabel("关于与更新")
+        WeChatGroup {
+            WeChatCell(
+                title = "当前版本",
+                value = update.localLabel,
+                showChevron = false,
+                showDivider = true
+            )
+            WeChatCell(
+                title = when {
+                    update.checking -> "检查中…"
+                    update.downloading -> "下载中 ${(update.progress * 100).toInt()}%"
+                    update.available != null -> "发现 ${update.available!!.versionName} · 点此安装"
+                    else -> "检查更新"
+                },
+                subtitle = "从 Gitee 练习室仓库拉取 APK",
+                onClick = {
+                    when {
+                        update.checking || update.downloading -> Unit
+                        update.available != null -> showUpdateDialog = true
+                        else -> viewModel.checkForUpdate()
+                    }
+                }
+            )
+            if (update.downloading) {
+                LinearProgressIndicator(
+                    progress = { update.progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
         }
 
         WeChatGroupLabel("数据")
@@ -257,6 +349,192 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showImportConfirm = false }) { Text("取消") }
             }
+        )
+    }
+
+    if (showRoomEditor) {
+        RoomSettingsDialog(
+            room = room,
+            onDismiss = { showRoomEditor = false },
+            onChange = { enabled, owner, repo, branch, token, myId, peerId ->
+                viewModel.updateRoomDraft(enabled, owner, repo, branch, token, myId, peerId)
+            },
+            onSave = {
+                viewModel.saveRoomSettings()
+                showRoomEditor = false
+            }
+        )
+    }
+
+    val pending = update.available
+    if (showUpdateDialog && pending != null) {
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            title = { Text("新版本 ${pending.versionName}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("当前 ${update.localLabel}")
+                    Text(
+                        pending.notes.ifBlank { "有可用更新，下载后按系统提示安装。" },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUpdateDialog = false
+                        viewModel.downloadAndInstallUpdate()
+                    },
+                    enabled = !update.downloading
+                ) { Text("下载并安装") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateDialog = false }) { Text("稍后") }
+            }
+        )
+    }
+
+    if (showInstallPermission) {
+        AlertDialog(
+            onDismissRequest = { showInstallPermission = false },
+            title = { Text("需要安装权限") },
+            text = { Text("请允许「安装未知应用」，返回后再点一次安装。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showInstallPermission = false
+                        viewModel.openUnknownAppSettings(context)
+                    }
+                ) { Text("去开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInstallPermission = false }) { Text("取消") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun RoomSettingsDialog(
+    room: RoomSettingsUi,
+    onDismiss: () -> Unit,
+    onChange: (
+        enabled: Boolean?,
+        owner: String?,
+        repo: String?,
+        branch: String?,
+        accessToken: String?,
+        myMemberId: String?,
+        peerMemberId: String?
+    ) -> Unit,
+    onSave: () -> Unit
+) {
+    var showToken by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("双人练习室", style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                Text(
+                    if (room.enabled) "保存后会自动保持开启" else "填入令牌并保存后会自动开启同步",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                )
+                WeChatGroupLabel("私人令牌 · 只存本机")
+                WeChatGroup {
+                    RoomTextRow(
+                        label = if (showToken) "Token" else "Token ·••",
+                        value = room.accessToken,
+                        password = !showToken,
+                        onValueChange = { onChange(null, null, null, null, it, null, null) }
+                    )
+                    WeChatInsetDivider()
+                    WeChatCell(
+                        title = if (showToken) "隐藏令牌" else "显示令牌",
+                        onClick = { showToken = !showToken }
+                    )
+                }
+                WeChatGroupLabel("成员 ID")
+                WeChatGroup {
+                    RoomTextRow("我的 ID", room.myMemberId) {
+                        onChange(null, null, null, null, null, it, null)
+                    }
+                    WeChatInsetDivider()
+                    RoomTextRow("对方 ID", room.peerMemberId) {
+                        onChange(null, null, null, null, null, null, it)
+                    }
+                }
+                WeChatGroupLabel("仓库（一般不用改）")
+                WeChatGroup {
+                    RoomTextRow("Owner", room.owner) {
+                        onChange(null, it, null, null, null, null, null)
+                    }
+                    WeChatInsetDivider()
+                    RoomTextRow("Repo", room.repo) {
+                        onChange(null, null, it, null, null, null, null)
+                    }
+                    WeChatInsetDivider()
+                    RoomTextRow("Branch", room.branch) {
+                        onChange(null, null, null, it, null, null, null)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun RoomTextRow(
+    label: String,
+    value: String,
+    password: Boolean = false,
+    onValueChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            visualTransformation = if (password) {
+                PasswordVisualTransformation()
+            } else {
+                VisualTransformation.None
+            },
+            textStyle = TextStyle(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 15.sp
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp)
+                .border(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
 }

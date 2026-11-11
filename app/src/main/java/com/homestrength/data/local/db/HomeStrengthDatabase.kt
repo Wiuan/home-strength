@@ -45,7 +45,7 @@ import kotlinx.coroutines.sync.withLock
         RewardRedemptionEntity::class,
         PeriodGoalEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -58,7 +58,7 @@ abstract class HomeStrengthDatabase : RoomDatabase() {
 
     companion object {
         /** Keep in sync with [@Database] version for backup metadata. */
-        const val SCHEMA_VERSION = 12
+        const val SCHEMA_VERSION = 13
 
         @Volatile
         private var instance: HomeStrengthDatabase? = null
@@ -283,6 +283,14 @@ abstract class HomeStrengthDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE power_list_items ADD COLUMN completedAt INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getInstance(context: Context): HomeStrengthDatabase {
             return instance ?: synchronized(this) {
                 instance ?: build(context.applicationContext).also { instance = it }
@@ -306,7 +314,8 @@ abstract class HomeStrengthDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
-                    MIGRATION_11_12
+                    MIGRATION_11_12,
+                    MIGRATION_12_13
                 )
                 .build()
         }

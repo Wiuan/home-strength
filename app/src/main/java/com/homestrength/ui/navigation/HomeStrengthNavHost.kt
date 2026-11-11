@@ -35,6 +35,8 @@ import com.homestrength.ui.placeholder.planTitle
 import com.homestrength.ui.practice.LightPracticeScreen
 import com.homestrength.ui.profile.ProfileScreen
 import com.homestrength.ui.profile.ProfileViewModel
+import com.homestrength.ui.room.RoomFeedScreen
+import com.homestrength.ui.room.RoomFeedViewModel
 import com.homestrength.ui.settings.SettingsScreen
 import com.homestrength.ui.settings.SettingsViewModel
 import com.homestrength.ui.welfare.WelfareScreen
@@ -86,10 +88,28 @@ fun HomeStrengthNavHost(
         }
 
         composable(Routes.Profile.route) {
+            val app = LocalContext.current.applicationContext as HomeStrengthApp
             val vm: ProfileViewModel = viewModel(
-                factory = ProfileViewModel.factory(repository, traineeRepository)
+                factory = ProfileViewModel.factory(
+                    repository,
+                    traineeRepository,
+                    app.container.roomSyncRepository
+                )
             )
             ProfileScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
+                onOpenRoomFeed = { navController.navigate(Routes.RoomFeed.route) },
+                onMessage = onError
+            )
+        }
+
+        composable(Routes.RoomFeed.route) {
+            val app = LocalContext.current.applicationContext as HomeStrengthApp
+            val vm: RoomFeedViewModel = viewModel(
+                factory = RoomFeedViewModel.factory(app.container.roomSyncRepository)
+            )
+            RoomFeedScreen(
                 viewModel = vm,
                 onBack = { navController.popBackStack() },
                 onMessage = onError
@@ -179,7 +199,9 @@ fun HomeStrengthNavHost(
                 factory = SettingsViewModel.factory(
                     repository,
                     traineeRepository,
-                    app.container.backupRepository
+                    app.container.backupRepository,
+                    app.container.roomSyncRepository,
+                    app.container.appUpdateRepository
                 )
             )
             SettingsScreen(

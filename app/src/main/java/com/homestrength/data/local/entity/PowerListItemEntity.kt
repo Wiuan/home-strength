@@ -30,5 +30,7 @@ data class PowerListItemEntity(
     /** Active / last linked light practice id; 0 = none. */
     val linkedPracticeId: Long = 0,
     /** Done via light-track completion — no checklist reward was granted. */
-    val completedViaPractice: Boolean = false
+    val completedViaPractice: Boolean = false,
+    /** Epoch millis when marked DONE; 0 = unknown (legacy rows). */
+    val completedAt: Long = 0L
 )

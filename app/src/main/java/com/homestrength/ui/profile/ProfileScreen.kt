@@ -60,6 +60,7 @@ import com.homestrength.data.local.entity.PeriodGoalEntity
 import com.homestrength.data.local.entity.PeriodGoalStatus
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.repository.TraineeRepository
+import com.homestrength.data.room.MemberProgress
 import com.homestrength.domain.trainee.DayActivity
 import com.homestrength.domain.trainee.MonthBucket
 import com.homestrength.domain.trainee.MonthReview
@@ -74,14 +75,18 @@ import com.homestrength.ui.components.SectionLabel
 import com.homestrength.ui.components.WeChatGroup
 import com.homestrength.ui.components.WeChatGroupLabel
 import com.homestrength.ui.components.WeChatInsetDivider
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.min
 
 @Composable
 fun ProfileScreen(
     viewModel: ProfileViewModel,
     onBack: () -> Unit,
+    onOpenRoomFeed: () -> Unit = {},
     onMessage: (String) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -201,6 +206,21 @@ fun ProfileScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                 )
+            }
+
+            if (state.roomEnabled || state.roomMe != null) {
+                WeChatGroupLabel("练习室对比")
+                WeChatGroup {
+                    RoomCompareBlock(
+                        syncing = state.roomSyncing,
+                        scope = state.roomScope,
+                        me = state.roomMe,
+                        peer = state.roomPeer,
+                        onScope = viewModel::setRoomScope,
+                        onSync = { viewModel.syncRoom(silent = false) },
+                        onOpenFeed = onOpenRoomFeed
+                    )
+                }
             }
 
             WeChatGroupLabel(period.planTitle())
@@ -1364,4 +1384,223 @@ private fun trackColor(track: PracticeTrack): Color = when (track) {
     PracticeTrack.LIFE -> Color(0xFF4ECDC4) // 薄荷绿
     PracticeTrack.SLEEP -> Color(0xFFB794F6) // 薰衣草
     PracticeTrack.MEDITATION -> Color(0xFF34D399) // 翠绿
+}
+
+@Composable
+private fun RoomCompareBlock(
+    syncing: Boolean,
+    scope: RoomCompareScope,
+    me: MemberProgress?,
+    peer: MemberProgress?,
+    onScope: (RoomCompareScope) -> Unit,
+    onSync: () -> Unit,
+    onOpenFeed: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                .clickable(onClick = onOpenFeed)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "双方动态",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "按完成时间看我们做了什么",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Text(
+                "›",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    RoomCompareScope.DAY to "日",
+                    RoomCompareScope.WEEK to "周",
+                    RoomCompareScope.MONTH to "月"
+                ).forEach { (value, label) ->
+                    FilterChip(
+                        selected = scope == value,
+                        onClick = { onScope(value) },
+                        label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                            selectedLabelColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
+            TextButton(onClick = onSync, enabled = !syncing) {
+                Text(if (syncing) "同步中" else "同步")
+            }
+        }
+
+        if (me == null && !syncing) {
+            Text(
+                "点同步，上传我的进度并拉取对方",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@Column
+        }
+
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                me?.nickname ?: "我",
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 56.dp)
+            )
+            Spacer(Modifier.width(16.dp))
+            Text(
+                peer?.nickname ?: "对方",
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        val rows = roomCompareRows(scope, me, peer)
+        rows.forEachIndexed { index, row ->
+            RoomMetricRow(row)
+            if (index < rows.lastIndex) {
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+
+        val updated = listOfNotNull(me?.updatedAt, peer?.updatedAt).maxOrNull()
+        if (updated != null && updated > 0L) {
+            val time = Instant.ofEpochMilli(updated)
+                .atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+            Text(
+                "最近同步 $time",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (peer == null && me != null) {
+            Text(
+                "对方还没同步过 · 让她在设置里填同一仓库令牌",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private data class RoomMetricRowData(
+    val label: String,
+    val meValue: String,
+    val peerValue: String,
+    val meWins: Boolean?
+)
+
+private fun roomCompareRows(
+    scope: RoomCompareScope,
+    me: MemberProgress?,
+    peer: MemberProgress?
+): List<RoomMetricRowData> {
+    fun row(label: String, mine: Int?, theirs: Int?): RoomMetricRowData {
+        val m = mine ?: 0
+        val p = theirs
+        return RoomMetricRowData(
+            label = label,
+            meValue = mine?.toString() ?: "—",
+            peerValue = p?.toString() ?: "—",
+            meWins = when {
+                p == null || mine == null -> null
+                m > p -> true
+                m < p -> false
+                else -> null
+            }
+        )
+    }
+    return when (scope) {
+        RoomCompareScope.DAY -> listOf(
+            row("今日完成", me?.todayDone, peer?.todayDone),
+            row("粉丝", me?.fans, peer?.fans)
+        )
+        RoomCompareScope.WEEK -> listOf(
+            row("力量", me?.weekStrength, peer?.weekStrength),
+            row("早睡", me?.weekSleep, peer?.weekSleep),
+            row("轻轨", me?.weekLight, peer?.weekLight),
+            row("粉丝", me?.fans, peer?.fans)
+        )
+        RoomCompareScope.MONTH -> listOf(
+            row("活跃天", me?.monthActiveDays, peer?.monthActiveDays),
+            row("力量天", me?.monthStrengthDays, peer?.monthStrengthDays),
+            row("早睡天", me?.monthSleepDays, peer?.monthSleepDays),
+            row("粉丝", me?.fans, peer?.fans)
+        )
+    }
+}
+
+@Composable
+private fun RoomMetricRow(row: RoomMetricRowData) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            row.label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(56.dp)
+        )
+        Text(
+            row.meValue,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (row.meWins == true) FontWeight.Bold else FontWeight.Normal,
+            color = if (row.meWins == true) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            "vs",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            row.peerValue,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (row.meWins == false) FontWeight.Bold else FontWeight.Normal,
+            color = if (row.meWins == false) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f)
+        )
+    }
 }

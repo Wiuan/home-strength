@@ -310,6 +310,7 @@ object BackupCodec {
         .put("practicedMinutes", p.practicedMinutes)
         .put("linkedPracticeId", p.linkedPracticeId)
         .put("completedViaPractice", p.completedViaPractice)
+        .put("completedAt", p.completedAt)
 
     private fun powerFromJson(o: JSONObject) = PowerListItemEntity(
         id = o.getLong("id"),
@@ -324,7 +325,8 @@ object BackupCodec {
         targetDurationSeconds = o.optInt("targetDurationSeconds"),
         practicedMinutes = o.optInt("practicedMinutes"),
         linkedPracticeId = o.optLong("linkedPracticeId"),
-        completedViaPractice = o.optBoolean("completedViaPractice", false)
+        completedViaPractice = o.optBoolean("completedViaPractice", false),
+        completedAt = o.optLong("completedAt", 0L)
     )
 
     private fun lightToJson(l: LightPracticeEntity) = JSONObject()
