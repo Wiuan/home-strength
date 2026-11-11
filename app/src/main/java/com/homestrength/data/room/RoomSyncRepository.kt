@@ -222,12 +222,10 @@ class RoomSyncRepository(
         val myPath = "members/${prefs.myMemberId}.json"
         val peerPath = "members/${prefs.peerMemberId}.json"
 
-        val existingSha = client.getFile(myPath).getOrNull()?.sha
         client.putFile(
             path = myPath,
             content = mine.toJson().toString(2),
-            message = "sync ${prefs.myMemberId} ${mine.updatedAt}",
-            sha = existingSha
+            message = "sync ${prefs.myMemberId} ${mine.updatedAt}"
         ).getOrElse { return Result.failure(it) }
 
         val peer = client.getFile(peerPath).fold(

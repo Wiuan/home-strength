@@ -49,24 +49,59 @@ class GiteeContentsClient(
         }
     }
 
+    /**
+     * Create (POST) or update (PUT) a file. Gitee requires PUT + [sha] only when the path already exists.
+     */
     suspend fun putFile(
         path: String,
         content: String,
         message: String,
-        sha: String?
+        sha: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val encodedPath = path.split("/").joinToString("/") {
                 URLEncoder.encode(it, "UTF-8")
             }
             val url = "https://gitee.com/api/v5/repos/$owner/$repo/contents/$encodedPath"
+            val existingSha = when {
+                !sha.isNullOrBlank() -> sha
+                else -> getFile(path).getOrNull()?.sha
+            }
             val payload = JSONObject()
                 .put("access_token", token)
                 .put("content", Base64.encodeToString(content.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP))
                 .put("message", message)
                 .put("branch", branch)
-            if (!sha.isNullOrBlank()) payload.put("sha", sha)
-            http("PUT", url, payload.toString())
+            val method = if (!existingSha.isNullOrBlank()) {
+                payload.put("sha", existingSha)
+                "PUT"
+            } else {
+                "POST"
+            }
+            try {
+                http(method, url, payload.toString())
+            } catch (e: Exception) {
+                val msg = e.message.orEmpty()
+                if (method == "PUT" && msg.contains("sha", ignoreCase = true)) {
+                    val freshSha = getFile(path).getOrNull()?.sha
+                    if (!freshSha.isNullOrBlank()) {
+                        payload.put("sha", freshSha)
+                        http("PUT", url, payload.toString())
+                    } else {
+                        http("POST", url, payload.toString())
+                    }
+                } else if (method == "POST" && msg.contains("400")) {
+                    val freshSha = getFile(path).getOrNull()?.sha
+                    if (!freshSha.isNullOrBlank()) {
+                        payload.put("sha", freshSha)
+                        http("PUT", url, payload.toString())
+                    } else {
+                        throw e
+                    }
+                } else {
+                    throw e
+                }
+            }
             Unit
         }
     }
