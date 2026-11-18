@@ -3,6 +3,8 @@ package com.homestrength.ui.room
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.homestrength.data.feishu.FeishuPrefs
+import com.homestrength.data.feishu.FeishuSyncRepository
 import com.homestrength.data.room.RoomFeedItem
 import com.homestrength.data.room.RoomSyncRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,7 +33,9 @@ data class RoomFeedUiState(
 )
 
 class RoomFeedViewModel(
-    private val roomSyncRepository: RoomSyncRepository
+    private val roomSyncRepository: RoomSyncRepository,
+    private val feishuSyncRepository: FeishuSyncRepository? = null,
+    private val feishuPrefs: FeishuPrefs? = null
 ) : ViewModel() {
 
     private val zone = ZoneId.systemDefault()
@@ -61,11 +65,30 @@ class RoomFeedViewModel(
         }
         viewModelScope.launch {
             _ui.update { it.copy(loading = true) }
+
+            // Entering the room: pull Feishu first (勾选变化 → 计分), then push/pull Gitee.
+            var feishuHint: String? = null
+            if (feishuPrefs?.isConfigured() == true && feishuSyncRepository != null) {
+                runCatching { feishuSyncRepository.sync(pushRoom = false) }
+                    .onSuccess { result ->
+                        if (result.applied > 0 || result.revoked > 0) {
+                            feishuHint = result.message
+                        }
+                    }
+                    .onFailure { err ->
+                        if (!silent) {
+                            feishuHint = "飞书同步失败：${err.message ?: "未知"}"
+                        }
+                    }
+            }
+
+            val feishuMsg = feishuHint
             roomSyncRepository.syncAndCompare()
                 .onSuccess {
                     applySnapshot()
-                    if (!silent) {
-                        _messages.emit(
+                    when {
+                        feishuMsg != null -> _messages.emit(feishuMsg)
+                        !silent -> _messages.emit(
                             if (it.peer == null) "已上传 · 对方还没同步"
                             else "已更新动态"
                         )
@@ -73,7 +96,10 @@ class RoomFeedViewModel(
                 }
                 .onFailure {
                     applySnapshot()
-                    if (!silent) _messages.emit(it.message ?: "同步失败")
+                    val roomErr = it.message ?: "同步失败"
+                    _messages.emit(
+                        if (feishuMsg != null) "$feishuMsg · $roomErr" else roomErr
+                    )
                 }
             _ui.update { it.copy(loading = false) }
         }
@@ -111,11 +137,19 @@ class RoomFeedViewModel(
     }
 
     companion object {
-        fun factory(roomSyncRepository: RoomSyncRepository): ViewModelProvider.Factory =
+        fun factory(
+            roomSyncRepository: RoomSyncRepository,
+            feishuSyncRepository: FeishuSyncRepository? = null,
+            feishuPrefs: FeishuPrefs? = null
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return RoomFeedViewModel(roomSyncRepository) as T
+                    return RoomFeedViewModel(
+                        roomSyncRepository,
+                        feishuSyncRepository,
+                        feishuPrefs
+                    ) as T
                 }
             }
     }

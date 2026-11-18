@@ -51,11 +51,27 @@ class TraineeRepository(
         title: String,
         track: PracticeTrack?,
         targetDurationSeconds: Int = 0
+    ): Boolean = addPowerItemForDay(
+        dayKey = todayKey(),
+        title = title,
+        track = track,
+        targetDurationSeconds = targetDurationSeconds
+    )
+
+    /**
+     * Insert a checklist row for an arbitrary [dayKey] (yyyy-MM-dd). Used by Feishu sync.
+     * @return false if that day already has 5 items.
+     */
+    suspend fun addPowerItemForDay(
+        dayKey: String,
+        title: String,
+        track: PracticeTrack?,
+        targetDurationSeconds: Int = 0,
+        note: String = ""
     ): Boolean {
-        val day = todayKey()
+        val day = dayKey.ifBlank { todayKey() }
         val current = traineeDao.getPowerList(day)
         if (current.size >= 5) return false
-        // Custom备注 → 生活；阅读/书法历史值归一到修养
         val resolved = canonicalTrack(track ?: PracticeTrack.LIFE)
         traineeDao.insertPowerItem(
             PowerListItemEntity(
@@ -63,10 +79,160 @@ class TraineeRepository(
                 title = title.trim().ifBlank { trackLabel(resolved) },
                 track = resolved,
                 sortOrder = current.size,
+                note = note,
                 targetDurationSeconds = targetDurationSeconds.coerceAtLeast(0)
             )
         )
         return true
+    }
+
+    fun feishuNoteTag(recordId: String): String = "feishu:$recordId"
+
+    suspend fun hasFeishuCompletion(recordId: String): Boolean {
+        val tag = feishuNoteTag(recordId)
+        return traineeDao.getAllPowerItems().any {
+            it.note.contains(tag) && it.status == PowerItemStatus.DONE
+        }
+    }
+
+    /**
+     * Feishu「同步到App」勾选：按训练日写入已完成清单、加分，必要时写轻练时长（进练习室动态）。
+     * 不受当天 5 条清单上限限制。已完成则跳过；若仅有待办则升级为完成并加分。
+     * @return true if newly applied or upgraded
+     */
+    suspend fun applyFeishuCompletion(
+        recordId: String,
+        dayKey: String,
+        title: String,
+        track: PracticeTrack?,
+        targetDurationSeconds: Int = 0,
+        /** Feishu date/created millis when known; else fall back to day noon / now. */
+        atMillis: Long? = null
+    ): Boolean {
+        val tag = feishuNoteTag(recordId)
+        val existing = traineeDao.getAllPowerItems().firstOrNull { it.note.contains(tag) }
+        if (existing != null && existing.status == PowerItemStatus.DONE) return false
+
+        val day = dayKey.ifBlank { todayKey() }
+        val resolved = canonicalTrack(track ?: PracticeTrack.CULTIVATION)
+        val cleanTitle = title.trim().ifBlank { trackLabel(resolved) }
+        val seconds = targetDurationSeconds.coerceAtLeast(0)
+        val timed = resolved.isTimedLightTrack() && seconds > 0
+        val (fans, coins) = resolveTrackRewards(cleanTitle, resolved, timed = timed)
+        val now = System.currentTimeMillis()
+        val completedAt = atMillis?.takeIf { it > 0L } ?: completedAtForDay(day, now)
+
+        if (existing != null) {
+            // Upgrade a prior pending Feishu import into a scored completion.
+            if (timed) {
+                completeTimedLightViaChecklist(
+                    existing.copy(
+                        title = cleanTitle,
+                        track = resolved,
+                        targetDurationSeconds = seconds,
+                        dayKey = day
+                    ),
+                    resolved,
+                    seconds,
+                    atMillis = completedAt
+                )
+            } else {
+                award(fans, coins, energyDelta = 0)
+                traineeDao.updatePowerItem(
+                    existing.copy(
+                        dayKey = day,
+                        title = cleanTitle,
+                        track = resolved,
+                        status = PowerItemStatus.DONE,
+                        rewardFans = fans,
+                        rewardCoins = coins,
+                        targetDurationSeconds = seconds,
+                        completedViaPractice = false,
+                        completedAt = completedAt
+                    )
+                )
+            }
+            return true
+        }
+
+        val current = traineeDao.getPowerList(day)
+        var linkedId = 0L
+        var viaPractice = false
+        var practicedMinutes = 0
+        if (timed) {
+            linkedId = traineeDao.insertLightPractice(
+                LightPracticeEntity(
+                    track = resolved,
+                    startedAt = completedAt,
+                    durationSeconds = seconds,
+                    noteTitle = cleanTitle,
+                    completed = true,
+                    fansEarned = fans,
+                    coinsEarned = coins
+                )
+            )
+            award(fans, coins, energyDelta = -10)
+            viaPractice = true
+            practicedMinutes = secondsToPracticedMinutes(seconds)
+        } else {
+            award(fans, coins, energyDelta = 0)
+        }
+        traineeDao.insertPowerItem(
+            PowerListItemEntity(
+                dayKey = day,
+                title = cleanTitle,
+                track = resolved,
+                status = PowerItemStatus.DONE,
+                sortOrder = current.size,
+                note = tag,
+                targetDurationSeconds = seconds,
+                rewardFans = fans,
+                rewardCoins = coins,
+                practicedMinutes = practicedMinutes,
+                linkedPracticeId = linkedId,
+                completedViaPractice = viaPractice,
+                completedAt = completedAt
+            )
+        )
+        return true
+    }
+
+    /**
+     * Feishu 取消勾选：扣回该行加分，删清单与关联轻练（练习室下次推送即下墙）。
+     */
+    suspend fun revokeFeishuCompletion(recordId: String): Boolean {
+        val tag = feishuNoteTag(recordId)
+        val items = traineeDao.getAllPowerItems().filter { it.note.contains(tag) }
+        if (items.isEmpty()) return false
+        for (item in items) {
+            if (item.status == PowerItemStatus.DONE) {
+                clawBackPowerItemRewards(item)
+                if (item.track == PracticeTrack.SLEEP) undoEarlySleepState()
+                if (item.track == PracticeTrack.MEDITATION) undoMeditationEnergy()
+                clearLinkedLightPractice(item.linkedPracticeId)
+            }
+            traineeDao.deletePowerItem(item.id)
+        }
+        return true
+    }
+
+    /** Revoke every Feishu-tagged completion (used by settings reset). */
+    suspend fun revokeAllFeishuCompletions(): Int {
+        val items = traineeDao.getAllPowerItems().filter { it.note.contains("feishu:") }
+        var n = 0
+        for (item in items) {
+            val id = item.note.substringAfter("feishu:", "").substringBefore('|').trim()
+            if (id.isBlank()) continue
+            if (revokeFeishuCompletion(id)) n++
+        }
+        return n
+    }
+
+    /** Fallback only when Feishu gave no timestamp: today→now, else noon that day. */
+    private fun completedAtForDay(dayKey: String, now: Long): Long {
+        if (dayKey == todayKey()) return now
+        val day = runCatching { LocalDate.parse(dayKey) }.getOrNull() ?: return now
+        return day.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
     }
 
     suspend fun getPowerItem(id: Long): PowerListItemEntity? {
@@ -143,13 +309,14 @@ class TraineeRepository(
     private suspend fun completeTimedLightViaChecklist(
         item: PowerListItemEntity,
         track: PracticeTrack,
-        targetSeconds: Int
+        targetSeconds: Int,
+        atMillis: Long? = null
     ) {
         val profile = getProfile()
         val (fans, coins) = resolveTrackRewards(item.title, track, timed = true)
         val seconds = targetSeconds.coerceAtLeast(0)
         val minutes = secondsToPracticedMinutes(seconds)
-        val now = System.currentTimeMillis()
+        val now = atMillis?.takeIf { it > 0L } ?: System.currentTimeMillis()
         val existing = if (item.linkedPracticeId > 0L) {
             traineeDao.getLightPractice(item.linkedPracticeId)
         } else {

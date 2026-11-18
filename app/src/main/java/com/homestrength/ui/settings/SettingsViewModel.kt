@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homestrength.data.backup.BackupRepository
+import com.homestrength.data.feishu.FeishuPrefs
+import com.homestrength.data.feishu.FeishuSyncRepository
 import com.homestrength.data.local.entity.AppSettingsEntity
 import com.homestrength.data.local.entity.TraineeProfileEntity
 import com.homestrength.data.repository.HomeStrengthRepository
@@ -50,13 +52,23 @@ data class UpdateUiState(
     val available: RemoteAppVersion? = null
 )
 
+data class FeishuSettingsUi(
+    val appId: String = "",
+    val appSecret: String = "",
+    val appToken: String = "",
+    val tableId: String = "",
+    val syncing: Boolean = false
+)
+
 class SettingsViewModel(
     private val repository: HomeStrengthRepository,
     private val traineeRepository: TraineeRepository,
     private val backupRepository: BackupRepository,
     private val roomSyncRepository: RoomSyncRepository,
     private val appUpdateRepository: AppUpdateRepository,
-    private val lightTrackCatalog: LightTrackCatalog
+    private val lightTrackCatalog: LightTrackCatalog,
+    private val feishuSyncRepository: FeishuSyncRepository,
+    private val feishuPrefs: FeishuPrefs
 ) : ViewModel() {
 
     private val roomPrefs: RoomPrefs = roomSyncRepository.prefs()
@@ -80,6 +92,9 @@ class SettingsViewModel(
     private val _lightTracks = MutableStateFlow(lightTrackCatalog.load())
     val lightTracks: StateFlow<List<LightTrackDef>> = _lightTracks.asStateFlow()
 
+    private val _feishu = MutableStateFlow(readFeishu())
+    val feishu: StateFlow<FeishuSettingsUi> = _feishu.asStateFlow()
+
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
@@ -90,6 +105,72 @@ class SettingsViewModel(
     val needInstallPermission: SharedFlow<Unit> = _needInstallPermission.asSharedFlow()
 
     private var pendingApk: File? = null
+
+    private fun readFeishu(): FeishuSettingsUi = FeishuSettingsUi(
+        appId = feishuPrefs.appId,
+        appSecret = feishuPrefs.appSecret,
+        appToken = feishuPrefs.appToken,
+        tableId = feishuPrefs.tableId
+    )
+
+    fun updateFeishuDraft(
+        appId: String? = null,
+        appSecret: String? = null,
+        appToken: String? = null,
+        tableId: String? = null
+    ) {
+        val cur = _feishu.value
+        _feishu.value = cur.copy(
+            appId = appId ?: cur.appId,
+            appSecret = appSecret ?: cur.appSecret,
+            appToken = appToken ?: cur.appToken,
+            tableId = tableId ?: cur.tableId
+        )
+    }
+
+    fun saveFeishuSettings() {
+        val cur = _feishu.value
+        feishuPrefs.appId = cur.appId
+        feishuPrefs.appSecret = cur.appSecret
+        // Allow pasting full wiki/base URL into appToken / tableId fields.
+        feishuPrefs.appToken = FeishuSyncRepository.extractToken(cur.appToken).ifBlank { cur.appToken }
+        // Keep multi-table raw text; each piece is normalized on sync.
+        val tables = FeishuPrefs.parseTableIds(cur.tableId).map { raw ->
+            FeishuSyncRepository.extractTableId(raw).ifBlank { raw.trim() }
+        }.filter { it.isNotBlank() }.distinct()
+        feishuPrefs.tableId = tables.joinToString("\n")
+        _feishu.value = readFeishu()
+        val tip = if (tables.size > 1) "飞书已保存 · ${tables.size} 张表" else "飞书配置已保存（只存本机）"
+        viewModelScope.launch { _messages.emit(tip) }
+    }
+
+    fun syncFromFeishu() {
+        if (_feishu.value.syncing) return
+        viewModelScope.launch {
+            _feishu.value = _feishu.value.copy(syncing = true)
+            runCatching { feishuSyncRepository.sync() }
+                .onSuccess { _messages.emit(it.message) }
+                .onFailure { _messages.emit(it.message ?: "飞书同步失败") }
+            _feishu.value = _feishu.value.copy(syncing = false)
+        }
+    }
+
+    /** Revoke all Feishu completions (扣分下墙) and clear sync marks. */
+    fun clearFeishuSyncedMarks() {
+        if (_feishu.value.syncing) return
+        viewModelScope.launch {
+            _feishu.value = _feishu.value.copy(syncing = true)
+            runCatching { feishuSyncRepository.revokeAllLocal() }
+                .onSuccess { n ->
+                    _messages.emit(
+                        if (n > 0) "已撤销 $n 条飞书训练（扣分并下墙）"
+                        else "没有可撤销的飞书训练"
+                    )
+                }
+                .onFailure { _messages.emit(it.message ?: "撤销失败") }
+            _feishu.value = _feishu.value.copy(syncing = false)
+        }
+    }
 
     private fun readRoom(): RoomSettingsUi = RoomSettingsUi(
         enabled = roomPrefs.enabled,
@@ -438,7 +519,9 @@ class SettingsViewModel(
             backupRepository: BackupRepository,
             roomSyncRepository: RoomSyncRepository,
             appUpdateRepository: AppUpdateRepository,
-            lightTrackCatalog: LightTrackCatalog
+            lightTrackCatalog: LightTrackCatalog,
+            feishuSyncRepository: FeishuSyncRepository,
+            feishuPrefs: FeishuPrefs
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -449,7 +532,9 @@ class SettingsViewModel(
                         backupRepository,
                         roomSyncRepository,
                         appUpdateRepository,
-                        lightTrackCatalog
+                        lightTrackCatalog,
+                        feishuSyncRepository,
+                        feishuPrefs
                     ) as T
                 }
             }

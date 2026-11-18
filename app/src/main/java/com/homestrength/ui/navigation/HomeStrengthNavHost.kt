@@ -110,7 +110,11 @@ fun HomeStrengthNavHost(
         composable(Routes.RoomFeed.route) {
             val app = LocalContext.current.applicationContext as HomeStrengthApp
             val vm: RoomFeedViewModel = viewModel(
-                factory = RoomFeedViewModel.factory(app.container.roomSyncRepository)
+                factory = RoomFeedViewModel.factory(
+                    app.container.roomSyncRepository,
+                    app.container.feishuSyncRepository,
+                    app.container.feishuPrefs
+                )
             )
             RoomFeedScreen(
                 viewModel = vm,
@@ -210,7 +214,9 @@ fun HomeStrengthNavHost(
                     app.container.backupRepository,
                     app.container.roomSyncRepository,
                     app.container.appUpdateRepository,
-                    app.container.lightTrackCatalog
+                    app.container.lightTrackCatalog,
+                    app.container.feishuSyncRepository,
+                    app.container.feishuPrefs
                 )
             )
             SettingsScreen(

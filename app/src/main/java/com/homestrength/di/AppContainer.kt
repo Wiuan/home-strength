@@ -2,6 +2,8 @@ package com.homestrength.di
 
 import android.content.Context
 import com.homestrength.data.backup.BackupRepository
+import com.homestrength.data.feishu.FeishuPrefs
+import com.homestrength.data.feishu.FeishuSyncRepository
 import com.homestrength.data.local.db.HomeStrengthDatabase
 import com.homestrength.data.repository.HomeStrengthRepository
 import com.homestrength.data.repository.TraineeRepository
@@ -17,6 +19,7 @@ class AppContainer(context: Context) {
     private val database = HomeStrengthDatabase.getInstance(appContext)
 
     val roomPrefs = RoomPrefs(appContext)
+    val feishuPrefs = FeishuPrefs(appContext)
 
     val lightTrackCatalog = LightTrackCatalog(appContext)
 
@@ -51,5 +54,11 @@ class AppContainer(context: Context) {
     val appUpdateRepository = AppUpdateRepository(
         context = appContext,
         prefs = roomPrefs
+    )
+
+    val feishuSyncRepository = FeishuSyncRepository(
+        prefs = feishuPrefs,
+        traineeRepository = traineeRepository,
+        roomSyncRepository = roomSyncRepository
     )
 }

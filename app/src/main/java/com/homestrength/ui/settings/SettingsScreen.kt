@@ -70,6 +70,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
+import com.homestrength.data.feishu.FeishuPrefs
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.local.entity.TraineeProfileEntity
 import com.homestrength.data.track.LightTrackDef
@@ -95,12 +96,14 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val profile by viewModel.profile.collectAsStateWithLifecycle()
     val room by viewModel.room.collectAsStateWithLifecycle()
+    val feishu by viewModel.feishu.collectAsStateWithLifecycle()
     val update by viewModel.update.collectAsStateWithLifecycle()
     val lightTracks by viewModel.lightTracks.collectAsStateWithLifecycle()
     var editor by remember { mutableStateOf<SettingEditor?>(null) }
     var showRewardEditor by remember { mutableStateOf(false) }
     var showImportConfirm by remember { mutableStateOf(false) }
     var showRoomEditor by remember { mutableStateOf(false) }
+    var showFeishuEditor by remember { mutableStateOf(false) }
     var showInstallPermission by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showNicknameEditor by remember { mutableStateOf(false) }
@@ -247,6 +250,34 @@ fun SettingsScreen(
                 title = if (room.syncing) "同步中…" else "立即同步并拉取对方",
                 subtitle = "档案页可看日 / 周 / 月对比",
                 onClick = { if (!room.syncing) viewModel.testRoomSync() }
+            )
+        }
+
+        WeChatGroupLabel("飞书训练")
+        WeChatGroup {
+            WeChatCell(
+                title = "填写飞书凭证与表格",
+                subtitle = when {
+                    feishu.appId.isNotBlank() && feishu.tableId.isNotBlank() -> {
+                        val n = FeishuPrefs.parseTableIds(feishu.tableId).size
+                        if (n > 1) "已配置 · $n 张表 · 勾选上墙"
+                        else "已配置 · 勾选=计分上墙 / 取消=扣分下墙"
+                    }
+                    else -> "App ID / Secret / app_token / table_id（只存本机）"
+                },
+                showDivider = true,
+                onClick = { showFeishuEditor = true }
+            )
+            WeChatCell(
+                title = if (feishu.syncing) "同步中…" else "从飞书同步到练习室",
+                subtitle = "进练习室会自动同步；这里可手动再拉一次",
+                showDivider = true,
+                onClick = { if (!feishu.syncing) viewModel.syncFromFeishu() }
+            )
+            WeChatCell(
+                title = "撤销全部飞书训练",
+                subtitle = "扣回分数、删本地记录并尝试推练习室",
+                onClick = { if (!feishu.syncing) viewModel.clearFeishuSyncedMarks() }
             )
         }
 
@@ -419,6 +450,20 @@ fun SettingsScreen(
             onSave = {
                 viewModel.saveRoomSettings()
                 showRoomEditor = false
+            }
+        )
+    }
+
+    if (showFeishuEditor) {
+        FeishuSettingsDialog(
+            feishu = feishu,
+            onDismiss = { showFeishuEditor = false },
+            onChange = { appId, appSecret, appToken, tableId ->
+                viewModel.updateFeishuDraft(appId, appSecret, appToken, tableId)
+            },
+            onSave = {
+                viewModel.saveFeishuSettings()
+                showFeishuEditor = false
             }
         )
     }
@@ -1021,6 +1066,107 @@ private fun NicknameEditorDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+}
+
+@Composable
+private fun FeishuSettingsDialog(
+    feishu: FeishuSettingsUi,
+    onDismiss: () -> Unit,
+    onChange: (appId: String?, appSecret: String?, appToken: String?, tableId: String?) -> Unit,
+    onSave: () -> Unit
+) {
+    var appId by remember { mutableStateOf(feishu.appId) }
+    var appSecret by remember { mutableStateOf(feishu.appSecret) }
+    var appToken by remember { mutableStateOf(feishu.appToken) }
+    var tableId by remember { mutableStateOf(feishu.tableId) }
+    var showSecret by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val scroll = rememberScrollState()
+
+    fun close() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onDismiss()
+    }
+
+    fun save() {
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+        onChange(appId, appSecret, appToken, tableId)
+        onSave()
+    }
+
+    BackHandler(onBack = ::close)
+
+    Dialog(
+        onDismissRequest = ::close,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = true,
+            decorFitsSystemWindows = true
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp)
+                .imePadding()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Text("飞书训练同步", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "勾选=加分上墙；取消勾选再同步=扣分下墙。同一 base 下多张表：table_id 用逗号或换行分隔。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(scroll)
+                ) {
+                    WeChatGroupLabel("开放平台应用")
+                    WeChatGroup {
+                        RoomTextRow("App ID", appId) { appId = it }
+                        WeChatInsetDivider()
+                        RoomTextRow(
+                            label = if (showSecret) "App Secret" else "App Secret ·••",
+                            value = appSecret,
+                            password = !showSecret,
+                            onValueChange = { appSecret = it }
+                        )
+                        WeChatInsetDivider()
+                        WeChatCell(
+                            title = if (showSecret) "隐藏 Secret" else "显示 Secret",
+                            onClick = { showSecret = !showSecret }
+                        )
+                    }
+                    WeChatGroupLabel("多维表格")
+                    WeChatGroup {
+                        RoomTextRow("app_token 或 Wiki 链接", appToken) { appToken = it }
+                        WeChatInsetDivider()
+                        RoomTextRow(
+                            "table_id（多张表用逗号或换行）",
+                            tableId
+                        ) { tableId = it }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = ::close) { Text("取消") }
+                    TextButton(onClick = ::save) { Text("保存") }
+                }
+            }
+        }
+    }
 }
 
 @Composable
