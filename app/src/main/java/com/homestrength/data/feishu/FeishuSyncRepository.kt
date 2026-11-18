@@ -3,6 +3,7 @@ package com.homestrength.data.feishu
 import com.homestrength.data.local.entity.PracticeTrack
 import com.homestrength.data.repository.TraineeRepository
 import com.homestrength.data.room.RoomSyncRepository
+import com.homestrength.data.track.LightTrackCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -28,7 +29,8 @@ data class FeishuSyncResult(
 class FeishuSyncRepository(
     private val prefs: FeishuPrefs,
     private val traineeRepository: TraineeRepository,
-    private val roomSyncRepository: RoomSyncRepository? = null
+    private val roomSyncRepository: RoomSyncRepository? = null,
+    private val lightTrackCatalog: LightTrackCatalog? = null
 ) {
     /**
      * @param pushRoom when true and there are apply/revoke changes, push Gitee after.
@@ -37,14 +39,22 @@ class FeishuSyncRepository(
     suspend fun sync(pushRoom: Boolean = true): FeishuSyncResult = withContext(Dispatchers.IO) {
         if (!prefs.isConfigured()) {
             return@withContext FeishuSyncResult(
-                0, 0, 0, 0, false, "请先填写飞书 App ID / Secret / app_token / table_id"
+                0, 0, 0, 0, false, "请先填写飞书 App ID / Secret / Wiki 或 base 链接"
             )
         }
         val client = FeishuApiClient(prefs.appId, prefs.appSecret)
         val bitableToken = client.resolveBitableAppToken(extractToken(prefs.appToken))
-        val tableIds = prefs.tableIds().map { extractTableId(it).ifBlank { it } }.distinct()
-        if (tableIds.isEmpty()) {
-            return@withContext FeishuSyncResult(0, 0, 0, 0, false, "请至少填写一个 table_id")
+        val manualIds = prefs.tableIds().map { extractTableId(it).ifBlank { it } }.distinct()
+        val tableIds = if (manualIds.isNotEmpty()) {
+            manualIds
+        } else {
+            val listed = client.listTables(bitableToken)
+            if (listed.isEmpty()) {
+                return@withContext FeishuSyncResult(
+                    0, 0, 0, 0, false, "该 Wiki/base 下没有数据表"
+                )
+            }
+            listed.map { it.tableId }
         }
 
         var applied = 0
@@ -80,7 +90,12 @@ class FeishuSyncRepository(
                     } ?: dateField(rec.fields, "训练时间")
                         ?: dateField(rec.fields, "锻炼时间")
                         ?: traineeRepository.todayKey()
-                    val track = mapTrack(textField(rec.fields, "训练类型"))
+                    val lightLabel = textField(rec.fields, "轻轨")
+                        .ifBlank { textField(rec.fields, "轨道") }
+                    val fromLight = lightLabel.takeIf { it.isNotBlank() }
+                        ?.let { lightTrackCatalog?.findByLabel(it) }
+                    val track = fromLight?.backing
+                        ?: mapTrack(textField(rec.fields, "训练类型"))
                     val seconds = if (minutes > 0) minutes * 60 else 0
                     val ok = traineeRepository.applyFeishuCompletion(
                         recordId = rec.recordId,
@@ -88,7 +103,8 @@ class FeishuSyncRepository(
                         title = rawTitle,
                         track = track,
                         targetDurationSeconds = seconds,
-                        atMillis = atMillis
+                        atMillis = atMillis,
+                        lightTrackLabel = fromLight?.label ?: lightLabel.takeIf { it.isNotBlank() }
                     )
                     prefs.markRecordSynced(tableId, rec.recordId)
                     if (ok) applied++ else skipped++
@@ -137,7 +153,11 @@ class FeishuSyncRepository(
         }
 
         val msg = buildString {
-            append("${tableIds.size} 表 · 上墙 $applied · 下墙 $revoked")
+            append(
+                if (manualIds.isEmpty()) "自动 ${tableIds.size} 表"
+                else "限定 ${tableIds.size} 表"
+            )
+            append(" · 上墙 $applied · 下墙 $revoked")
             if (skipped > 0) append(" · 已同步 $skipped")
             if (skippedNoFlag > 0) append(" · 未勾选 $skippedNoFlag")
             if (roomPushed) append(" · 已推练习室")
@@ -257,11 +277,15 @@ class FeishuSyncRepository(
             }
         }
 
+        /** Fallback when「轻轨」列为空：仍读「训练类型」。 */
         private fun mapTrack(type: String): PracticeTrack {
             val t = type.trim()
             return when {
-                t.contains("音乐") -> PracticeTrack.VOCAL
-                t.contains("有氧") -> PracticeTrack.CULTIVATION
+                t.contains("算法") -> PracticeTrack.ALGORITHM
+                t.contains("音乐") || t.contains("声乐") -> PracticeTrack.VOCAL
+                t.contains("有氧") || t.contains("修养") || t.contains("阅读") || t.contains("书法") ->
+                    PracticeTrack.CULTIVATION
+                t.contains("生活") -> PracticeTrack.LIFE
                 t.contains("力量") -> PracticeTrack.STRENGTH
                 else -> PracticeTrack.CULTIVATION
             }

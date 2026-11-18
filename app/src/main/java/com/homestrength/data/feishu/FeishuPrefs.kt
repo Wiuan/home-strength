@@ -31,11 +31,11 @@ class FeishuPrefs(context: Context) {
 
     fun tableIds(): List<String> = parseTableIds(tableId)
 
+    /** table_id optional — sync can list all tables under the wiki/base link. */
     fun isConfigured(): Boolean =
         appId.isNotBlank() &&
             appSecret.isNotBlank() &&
-            appToken.isNotBlank() &&
-            tableIds().isNotEmpty()
+            appToken.isNotBlank()
 
     fun syncedRecordIds(): Set<String> =
         prefs.getStringSet(KEY_SYNCED, emptySet()).orEmpty().toSet()

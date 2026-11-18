@@ -140,6 +140,8 @@ class RoomSyncRepository(
                 durationSec = practice.durationSeconds
             )
             val generic = TraineeRepository.trackLabel(track)
+            val lightName = linked?.note?.let(TraineeRepository::lightLabelFromNote)
+                ?.takeIf { it.isNotBlank() }
             out += RoomActivity(
                 id = "light-${practice.id}",
                 at = practice.startedAt,
@@ -153,8 +155,8 @@ class RoomSyncRepository(
                 track = track.name,
                 durationSec = practice.durationSeconds.coerceAtLeast(0),
                 preciseTime = true,
-                // Chip shows category; title shows specific checklist text (e.g. 阅读 10分钟).
-                trackDisplay = if (title == generic) "" else generic
+                // Prefer Feishu「轻轨」label (e.g. 阅读) over backing chip「修养」.
+                trackDisplay = lightName ?: if (title == generic) "" else generic
             )
         }
 
@@ -190,6 +192,7 @@ class RoomSyncRepository(
             }
             val track = item.track?.let(TraineeRepository::canonicalTrack)
             val listTitle = item.title.trim().ifBlank { TraineeRepository.trackLabel(track) }
+            val lightName = TraineeRepository.lightLabelFromNote(item.note)
             out += RoomActivity(
                 id = "power-${item.id}",
                 at = at,
@@ -201,7 +204,7 @@ class RoomSyncRepository(
                 },
                 track = track?.name.orEmpty(),
                 preciseTime = preciseAt > 0L,
-                trackDisplay = TraineeRepository.trackLabel(track)
+                trackDisplay = lightName ?: TraineeRepository.trackLabel(track)
             )
         }
 

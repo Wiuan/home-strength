@@ -134,13 +134,17 @@ class SettingsViewModel(
         feishuPrefs.appSecret = cur.appSecret
         // Allow pasting full wiki/base URL into appToken / tableId fields.
         feishuPrefs.appToken = FeishuSyncRepository.extractToken(cur.appToken).ifBlank { cur.appToken }
-        // Keep multi-table raw text; each piece is normalized on sync.
+        // Optional filter; blank = sync lists all tables under the wiki/base.
         val tables = FeishuPrefs.parseTableIds(cur.tableId).map { raw ->
             FeishuSyncRepository.extractTableId(raw).ifBlank { raw.trim() }
         }.filter { it.isNotBlank() }.distinct()
         feishuPrefs.tableId = tables.joinToString("\n")
         _feishu.value = readFeishu()
-        val tip = if (tables.size > 1) "飞书已保存 · ${tables.size} 张表" else "飞书配置已保存（只存本机）"
+        val tip = when {
+            tables.size > 1 -> "飞书已保存 · 限定 ${tables.size} 张表"
+            tables.size == 1 -> "飞书已保存 · 限定 1 张表"
+            else -> "飞书已保存 · 同步时自动拉取全部表"
+        }
         viewModelScope.launch { _messages.emit(tip) }
     }
 

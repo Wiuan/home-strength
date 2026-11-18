@@ -258,12 +258,15 @@ fun SettingsScreen(
             WeChatCell(
                 title = "填写飞书凭证与表格",
                 subtitle = when {
-                    feishu.appId.isNotBlank() && feishu.tableId.isNotBlank() -> {
+                    feishu.appId.isNotBlank() && feishu.appToken.isNotBlank() -> {
                         val n = FeishuPrefs.parseTableIds(feishu.tableId).size
-                        if (n > 1) "已配置 · $n 张表 · 勾选上墙"
-                        else "已配置 · 勾选=计分上墙 / 取消=扣分下墙"
+                        when {
+                            n > 1 -> "已配置 · 限定 $n 张表"
+                            n == 1 -> "已配置 · 限定 1 张表"
+                            else -> "已配置 · Wiki 链接自动取全部表"
+                        }
                     }
-                    else -> "App ID / Secret / app_token / table_id（只存本机）"
+                    else -> "App ID / Secret / Wiki 链接（只存本机）"
                 },
                 showDivider = true,
                 onClick = { showFeishuEditor = true }
@@ -1119,7 +1122,7 @@ private fun FeishuSettingsDialog(
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                 Text("飞书训练同步", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "勾选=加分上墙；取消勾选再同步=扣分下墙。同一 base 下多张表：table_id 用逗号或换行分隔。",
+                    "勾选=加分上墙；取消勾选再同步=扣分下墙。Wiki/base 链接即可（table_id 可留空）。表里加「轻轨」列，填与 App 一致的名称（算法/声乐/修养/阅读…）。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
@@ -1147,10 +1150,10 @@ private fun FeishuSettingsDialog(
                     }
                     WeChatGroupLabel("多维表格")
                     WeChatGroup {
-                        RoomTextRow("app_token 或 Wiki 链接", appToken) { appToken = it }
+                        RoomTextRow("Wiki / base 链接", appToken) { appToken = it }
                         WeChatInsetDivider()
                         RoomTextRow(
-                            "table_id（多张表用逗号或换行）",
+                            "table_id（可选，留空=全部表）",
                             tableId
                         ) { tableId = it }
                     }

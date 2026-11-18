@@ -17,6 +17,11 @@ data class FeishuRecord(
     val lastModifiedTime: Long? = null
 )
 
+data class FeishuTable(
+    val tableId: String,
+    val name: String
+)
+
 /**
  * Minimal Feishu OpenAPI client (tenant_access_token + bitable search + wiki node).
  */
@@ -76,6 +81,42 @@ class FeishuApiClient(
             }
         }
         raw
+    }
+
+    /** List all data tables under a bitable [appToken]. */
+    suspend fun listTables(appToken: String): List<FeishuTable> = withContext(Dispatchers.IO) {
+        val bearer = tenantAccessToken()
+        val out = mutableListOf<FeishuTable>()
+        var pageToken: String? = null
+        do {
+            val url = buildString {
+                append("https://open.feishu.cn/open-apis/bitable/v1/apps/")
+                append(appToken)
+                append("/tables?page_size=100")
+                if (!pageToken.isNullOrBlank()) {
+                    append("&page_token=")
+                    append(java.net.URLEncoder.encode(pageToken, "UTF-8"))
+                }
+            }
+            val json = httpJson("GET", url, body = null, bearer = bearer)
+            if (json.optInt("code", -1) != 0) {
+                error(json.optString("msg", "列出飞书数据表失败"))
+            }
+            val data = json.optJSONObject("data") ?: JSONObject()
+            val items = data.optJSONArray("items") ?: JSONArray()
+            for (i in 0 until items.length()) {
+                val item = items.optJSONObject(i) ?: continue
+                val id = item.optString("table_id", "")
+                if (id.isBlank()) continue
+                out += FeishuTable(id, item.optString("name", id))
+            }
+            pageToken = if (data.optBoolean("has_more", false)) {
+                data.optString("page_token", "").ifBlank { null }
+            } else {
+                null
+            }
+        } while (pageToken != null)
+        out
     }
 
     suspend fun searchRecords(

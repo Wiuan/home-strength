@@ -116,6 +116,33 @@ class LightTrackCatalog(context: Context) {
     fun findById(id: String): LightTrackDef? = load().firstOrNull { it.id == id }
 
     /**
+     * Match Feishu「轻轨」cell to a catalog def (exact label, then contains, then aliases).
+     */
+    fun findByLabel(label: String): LightTrackDef? {
+        val t = label.trim()
+        if (t.isBlank()) return null
+        val all = load()
+        all.firstOrNull { it.label == t }?.let { return it }
+        all.filter { it.label.isNotBlank() && (t.contains(it.label) || it.label.contains(t)) }
+            .maxByOrNull { it.label.length }
+            ?.let { return it }
+        val aliasBacking = when {
+            t.contains("算法") -> PracticeTrack.ALGORITHM
+            t.contains("声乐") || t.contains("音乐") -> PracticeTrack.VOCAL
+            t.contains("修养") || t.contains("有氧") -> PracticeTrack.CULTIVATION
+            t.contains("阅读") -> PracticeTrack.CULTIVATION
+            t.contains("书法") -> PracticeTrack.CULTIVATION
+            t.contains("生活") -> PracticeTrack.LIFE
+            else -> null
+        } ?: return null
+        // Prefer unlocked defs whose label appears in the cell (阅读/书法), else locked peer.
+        all.firstOrNull { !it.locked && it.backing == aliasBacking && t.contains(it.label) }
+            ?.let { return it }
+        return all.firstOrNull { it.locked && it.backing == aliasBacking }
+            ?: all.firstOrNull { it.backing == aliasBacking }
+    }
+
+    /**
      * Match checklist / practice title to a track def (longest label wins).
      */
     fun findForTitle(title: String, track: PracticeTrack? = null): LightTrackDef? {

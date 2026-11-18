@@ -107,21 +107,49 @@ class TraineeRepository(
         track: PracticeTrack?,
         targetDurationSeconds: Int = 0,
         /** Feishu date/created millis when known; else fall back to day noon / now. */
-        atMillis: Long? = null
+        atMillis: Long? = null,
+        /**
+         * Feishu「轻轨」label — used to pick catalog rewards / timed vs checklist
+         * even when [title] does not contain the label.
+         */
+        lightTrackLabel: String? = null
     ): Boolean {
         val tag = feishuNoteTag(recordId)
         val existing = traineeDao.getAllPowerItems().firstOrNull { it.note.contains(tag) }
         if (existing != null && existing.status == PowerItemStatus.DONE) return false
 
         val day = dayKey.ifBlank { todayKey() }
-        val resolved = canonicalTrack(track ?: PracticeTrack.CULTIVATION)
-        val cleanTitle = title.trim().ifBlank { trackLabel(resolved) }
+        val labelHint = lightTrackLabel?.trim().orEmpty()
+        val catalogDef = labelHint.takeIf { it.isNotBlank() }
+            ?.let { lightTrackCatalog?.findByLabel(it) }
+        val resolved = canonicalTrack(
+            catalogDef?.backing ?: track ?: PracticeTrack.CULTIVATION
+        )
+        val cleanTitle = title.trim().ifBlank {
+            catalogDef?.label?.takeIf { it.isNotBlank() } ?: trackLabel(resolved)
+        }
         val seconds = targetDurationSeconds.coerceAtLeast(0)
-        val timed = resolved.isTimedLightTrack() && seconds > 0
-        val (fans, coins) = resolveTrackRewards(cleanTitle, resolved, timed = timed)
+        val timed = when {
+            catalogDef != null -> catalogDef.isTimed() && seconds > 0
+            resolved == PracticeTrack.LIFE -> false
+            else -> resolved.isTimedLightTrack() && seconds > 0
+        }
+        val rewardKey = when {
+            catalogDef != null -> catalogDef.label
+            labelHint.isNotBlank() -> labelHint
+            else -> cleanTitle
+        }
+        val (fans, coins) = resolveTrackRewards(rewardKey, resolved, timed = timed)
         val now = System.currentTimeMillis()
         val completedAt = atMillis?.takeIf { it > 0L } ?: completedAtForDay(day, now)
 
+        val noteWithLight = buildString {
+            append(tag)
+            when {
+                labelHint.isNotBlank() -> append("|light=").append(labelHint)
+                catalogDef != null -> append("|light=").append(catalogDef.label)
+            }
+        }
         if (existing != null) {
             // Upgrade a prior pending Feishu import into a scored completion.
             if (timed) {
@@ -130,7 +158,8 @@ class TraineeRepository(
                         title = cleanTitle,
                         track = resolved,
                         targetDurationSeconds = seconds,
-                        dayKey = day
+                        dayKey = day,
+                        note = noteWithLight
                     ),
                     resolved,
                     seconds,
@@ -147,6 +176,7 @@ class TraineeRepository(
                         rewardFans = fans,
                         rewardCoins = coins,
                         targetDurationSeconds = seconds,
+                        note = noteWithLight,
                         completedViaPractice = false,
                         completedAt = completedAt
                     )
@@ -184,7 +214,7 @@ class TraineeRepository(
                 track = resolved,
                 status = PowerItemStatus.DONE,
                 sortOrder = current.size,
-                note = tag,
+                note = noteWithLight,
                 targetDurationSeconds = seconds,
                 rewardFans = fans,
                 rewardCoins = coins,
@@ -993,6 +1023,12 @@ class TraineeRepository(
             PracticeTrack.SLEEP -> "早睡"
             PracticeTrack.MEDITATION -> "冥想"
             null -> "练习"
+        }
+
+        /** Feishu note may carry `|light=阅读` for display / reward identity. */
+        fun lightLabelFromNote(note: String): String? {
+            val m = Regex("""\|light=([^|]+)""").find(note) ?: return null
+            return m.groupValues[1].trim().takeIf { it.isNotBlank() }
         }
     }
 }

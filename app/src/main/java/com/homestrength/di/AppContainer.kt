@@ -59,6 +59,7 @@ class AppContainer(context: Context) {
     val feishuSyncRepository = FeishuSyncRepository(
         prefs = feishuPrefs,
         traineeRepository = traineeRepository,
-        roomSyncRepository = roomSyncRepository
+        roomSyncRepository = roomSyncRepository,
+        lightTrackCatalog = lightTrackCatalog
     )
 }
