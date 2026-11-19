@@ -129,7 +129,7 @@ class LightTrackCatalog(context: Context) {
         val aliasBacking = when {
             t.contains("算法") -> PracticeTrack.ALGORITHM
             t.contains("声乐") || t.contains("音乐") -> PracticeTrack.VOCAL
-            t.contains("修养") || t.contains("有氧") -> PracticeTrack.CULTIVATION
+            t.contains("修养") || t.contains("有氧") || t.contains("运动") -> PracticeTrack.CULTIVATION
             t.contains("阅读") -> PracticeTrack.CULTIVATION
             t.contains("书法") -> PracticeTrack.CULTIVATION
             t.contains("生活") -> PracticeTrack.LIFE

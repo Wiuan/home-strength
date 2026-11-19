@@ -79,19 +79,15 @@ class FeishuSyncRepository(
                     }
                     val rawTitle = textField(rec.fields, "训练名称").ifBlank { "飞书训练" }
                     val minutes = numberField(rec.fields, "分钟数").coerceAtLeast(0)
-                    val atMillis = dateTimeMillis(rec.fields, "训练时间")
-                        ?: dateTimeMillis(rec.fields, "锻炼时间")
-                        ?: dateTimeMillis(rec.fields, "创建时间")
-                        ?: dateTimeMillis(rec.fields, "创建于")
+                    val atMillis = dateTimeMillis(rec.fields, "训练时间", "锻炼时间")
+                        ?: dateTimeMillis(rec.fields, "创建时间", "创建于")
                         ?: rec.createdTime
                         ?: rec.lastModifiedTime
                     val trainDay = atMillis?.let { ms ->
                         Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate().toString()
-                    } ?: dateField(rec.fields, "训练时间")
-                        ?: dateField(rec.fields, "锻炼时间")
+                    } ?: dateField(rec.fields, "训练时间", "锻炼时间")
                         ?: traineeRepository.todayKey()
-                    val lightLabel = textField(rec.fields, "轻轨")
-                        .ifBlank { textField(rec.fields, "轨道") }
+                    val lightLabel = textField(rec.fields, "轻轨", "轨道")
                     val fromLight = lightLabel.takeIf { it.isNotBlank() }
                         ?.let { lightTrackCatalog?.findByLabel(it) }
                     val track = fromLight?.backing
@@ -104,7 +100,9 @@ class FeishuSyncRepository(
                         track = track,
                         targetDurationSeconds = seconds,
                         atMillis = atMillis,
-                        lightTrackLabel = fromLight?.label ?: lightLabel.takeIf { it.isNotBlank() }
+                        // Keep Feishu cell text (e.g. 运动) even if not in catalog.
+                        lightTrackLabel = lightLabel.takeIf { it.isNotBlank() }
+                            ?: fromLight?.label
                     )
                     prefs.markRecordSynced(tableId, rec.recordId)
                     if (ok) applied++ else skipped++
@@ -192,8 +190,24 @@ class FeishuSyncRepository(
             return m?.groupValues?.get(1) ?: t
         }
 
+        /**
+         * Feishu field names are exact; friends often use 同步到APP vs 同步到App.
+         * Match ignoring ASCII case and spaces.
+         */
+        private fun fieldRaw(fields: Map<String, Any?>, vararg names: String): Any? {
+            for (n in names) {
+                fields[n]?.let { return it }
+            }
+            fun norm(s: String) = s.replace(" ", "").replace("　", "").lowercase()
+            val wanted = names.map(::norm).toSet()
+            for ((k, v) in fields) {
+                if (norm(k) in wanted) return v
+            }
+            return null
+        }
+
         private fun syncFlag(fields: Map<String, Any?>): Boolean {
-            val v = fields["同步到App"] ?: return false
+            val v = fieldRaw(fields, "同步到App", "同步到APP", "同步到app") ?: return false
             return when (v) {
                 is Boolean -> v
                 is Number -> v.toInt() != 0
@@ -202,8 +216,8 @@ class FeishuSyncRepository(
             }
         }
 
-        private fun textField(fields: Map<String, Any?>, key: String): String {
-            val v = fields[key] ?: return ""
+        private fun textField(fields: Map<String, Any?>, vararg keys: String): String {
+            val v = fieldRaw(fields, *keys) ?: return ""
             return when (v) {
                 is String -> v.trim()
                 is Number -> v.toString()
@@ -229,8 +243,8 @@ class FeishuSyncRepository(
             }
         }
 
-        private fun numberField(fields: Map<String, Any?>, key: String): Int {
-            val v = fields[key] ?: return 0
+        private fun numberField(fields: Map<String, Any?>, vararg keys: String): Int {
+            val v = fieldRaw(fields, *keys) ?: return 0
             return when (v) {
                 is Number -> v.toInt()
                 is String -> v.toDoubleOrNull()?.toInt() ?: 0
@@ -238,8 +252,8 @@ class FeishuSyncRepository(
             }
         }
 
-        private fun dateField(fields: Map<String, Any?>, key: String): String? {
-            val ms = dateTimeMillis(fields, key) ?: return null
+        private fun dateField(fields: Map<String, Any?>, vararg keys: String): String? {
+            val ms = dateTimeMillis(fields, *keys) ?: return null
             return Instant.ofEpochMilli(ms)
                 .atZone(ZoneId.systemDefault())
                 .toLocalDate()
@@ -247,8 +261,8 @@ class FeishuSyncRepository(
         }
 
         /** Unix millis from a Feishu date / created-time cell (preserves HH:mm when set). */
-        private fun dateTimeMillis(fields: Map<String, Any?>, key: String): Long? {
-            val v = fields[key] ?: return null
+        private fun dateTimeMillis(fields: Map<String, Any?>, vararg keys: String): Long? {
+            val v = fieldRaw(fields, *keys) ?: return null
             val zone = ZoneId.systemDefault()
             return when (v) {
                 is Number -> v.toLong().takeIf { it > 0L }
@@ -283,8 +297,8 @@ class FeishuSyncRepository(
             return when {
                 t.contains("算法") -> PracticeTrack.ALGORITHM
                 t.contains("音乐") || t.contains("声乐") -> PracticeTrack.VOCAL
-                t.contains("有氧") || t.contains("修养") || t.contains("阅读") || t.contains("书法") ->
-                    PracticeTrack.CULTIVATION
+                t.contains("有氧") || t.contains("运动") || t.contains("修养") ||
+                    t.contains("阅读") || t.contains("书法") -> PracticeTrack.CULTIVATION
                 t.contains("生活") -> PracticeTrack.LIFE
                 t.contains("力量") -> PracticeTrack.STRENGTH
                 else -> PracticeTrack.CULTIVATION
