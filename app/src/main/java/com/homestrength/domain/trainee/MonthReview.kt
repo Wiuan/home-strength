@@ -30,10 +30,10 @@ data class DayActivity(
 data class TrackShare(
     val track: PracticeTrack,
     val seconds: Int,
-    val count: Int
-) {
-    val label: String get() = TraineeRepository.trackLabel(track)
-}
+    val count: Int,
+    /** Display name — may be Feishu/custom 轻轨 (运动) instead of backing 修养. */
+    val label: String = TraineeRepository.trackLabel(track)
+)
 
 data class MonthReview(
     val month: YearMonth,
@@ -71,9 +71,21 @@ object MonthReviewBuilder {
         powerDone: List<PowerListItemEntity>,
         lightDone: List<LightPracticeEntity>,
         strengthDone: List<WorkoutSessionEntity>,
-        zone: ZoneId = ZoneId.systemDefault()
+        zone: ZoneId = ZoneId.systemDefault(),
+        /**
+         * Resolve a nicer slice label (e.g. 运动 / 阅读) from title + backing track + notes.
+         * Default keeps enum labels (修养 for CULTIVATION).
+         */
+        displayLabel: (title: String, track: PracticeTrack, note: String) -> String =
+            { _, track, note ->
+                TraineeRepository.lightLabelFromNote(note)
+                    ?: TraineeRepository.trackLabel(track)
+            }
     ): MonthReview {
         val byDay = linkedMapOf<LocalDate, MutableList<DayEntry>>()
+        val powerByPracticeId = powerDone
+            .filter { it.linkedPracticeId > 0L }
+            .associateBy { it.linkedPracticeId }
 
         fun add(day: LocalDate, entry: DayEntry) {
             if (day.year != month.year || day.month != month.month) return
@@ -147,40 +159,67 @@ object MonthReviewBuilder {
             }
         }
 
-        val monthSeconds = linkedMapOf<PracticeTrack, Int>()
-        val monthCounts = linkedMapOf<PracticeTrack, Int>()
-        val daySeconds = linkedMapOf<LocalDate, MutableMap<PracticeTrack, Int>>()
-        val dayCounts = linkedMapOf<LocalDate, MutableMap<PracticeTrack, Int>>()
+        // Aggregate by display label so 运动 / 阅读 don't collapse into 修养.
+        val monthSeconds = linkedMapOf<String, Int>()
+        val monthCounts = linkedMapOf<String, Int>()
+        val monthTrack = linkedMapOf<String, PracticeTrack>()
+        val daySeconds = linkedMapOf<LocalDate, MutableMap<String, Int>>()
+        val dayCounts = linkedMapOf<LocalDate, MutableMap<String, Int>>()
+        val dayTrack = linkedMapOf<LocalDate, MutableMap<String, PracticeTrack>>()
 
-        fun bump(day: LocalDate, track: PracticeTrack, sec: Int, n: Int = 1) {
+        fun bump(day: LocalDate, track: PracticeTrack, sec: Int, label: String, n: Int = 1) {
             if (sec <= 0 && n <= 0) return
             if (day.year != month.year || day.month != month.month) return
             val s = sec.coerceAtLeast(0)
-            monthSeconds[track] = (monthSeconds[track] ?: 0) + s
-            monthCounts[track] = (monthCounts[track] ?: 0) + n
+            val key = label.ifBlank { TraineeRepository.trackLabel(track) }
+            monthSeconds[key] = (monthSeconds[key] ?: 0) + s
+            monthCounts[key] = (monthCounts[key] ?: 0) + n
+            monthTrack.putIfAbsent(key, track)
             val secMap = daySeconds.getOrPut(day) { mutableMapOf() }
             val cntMap = dayCounts.getOrPut(day) { mutableMapOf() }
-            secMap[track] = (secMap[track] ?: 0) + s
-            cntMap[track] = (cntMap[track] ?: 0) + n
+            val trMap = dayTrack.getOrPut(day) { mutableMapOf() }
+            secMap[key] = (secMap[key] ?: 0) + s
+            cntMap[key] = (cntMap[key] ?: 0) + n
+            trMap.putIfAbsent(key, track)
         }
 
         fun sharesOf(
-            seconds: Map<PracticeTrack, Int>,
-            counts: Map<PracticeTrack, Int>
+            seconds: Map<String, Int>,
+            counts: Map<String, Int>,
+            tracks: Map<String, PracticeTrack>
         ): List<TrackShare> = seconds.entries
             .filter { it.value > 0 }
-            .map { (track, sec) -> TrackShare(track, sec, counts[track] ?: 0) }
+            .map { (label, sec) ->
+                val track = tracks[label] ?: PracticeTrack.CULTIVATION
+                TrackShare(track, sec, counts[label] ?: 0, label)
+            }
             .sortedByDescending { it.seconds }
+
+        fun labelForLight(practice: LightPracticeEntity, track: PracticeTrack): String {
+            val linked = powerByPracticeId[practice.id]
+            val fromLinked = linked?.note?.let(TraineeRepository::lightLabelFromNote)
+            val fromPractice = TraineeRepository.lightLabelFromNote(practice.note)
+            val title = practice.noteTitle.trim().ifBlank { linked?.title.orEmpty() }
+            val note = listOf(practice.note, linked?.note.orEmpty()).firstOrNull { it.isNotBlank() }.orEmpty()
+            return fromLinked
+                ?: fromPractice
+                ?: displayLabel(title, track, note)
+        }
 
         lightDone.forEach { practice ->
             val track = TraineeRepository.canonicalTrack(practice.track)
             if (track == PracticeTrack.SLEEP || track == PracticeTrack.MEDITATION) return@forEach
             val day = Instant.ofEpochMilli(practice.startedAt).atZone(zone).toLocalDate()
-            bump(day, track, practice.durationSeconds.coerceAtLeast(0))
+            bump(day, track, practice.durationSeconds.coerceAtLeast(0), labelForLight(practice, track))
         }
         strengthDone.forEach { session ->
             val day = Instant.ofEpochMilli(session.dateTime).atZone(zone).toLocalDate()
-            bump(day, PracticeTrack.STRENGTH, strengthDurationSeconds(session))
+            bump(
+                day,
+                PracticeTrack.STRENGTH,
+                strengthDurationSeconds(session),
+                TraineeRepository.trackLabel(PracticeTrack.STRENGTH)
+            )
         }
         // Life checklist ticks that weren't also timed light practices
         val lightLifeDays = lightDone
@@ -192,7 +231,9 @@ object MonthReviewBuilder {
             .forEach { item ->
                 val day = runCatching { LocalDate.parse(item.dayKey) }.getOrNull() ?: return@forEach
                 if (day !in lightLifeDays) {
-                    bump(day, PracticeTrack.LIFE, LIFE_CHECKLIST_SECONDS)
+                    val label = TraineeRepository.lightLabelFromNote(item.note)
+                        ?: displayLabel(item.title, PracticeTrack.LIFE, item.note)
+                    bump(day, PracticeTrack.LIFE, LIFE_CHECKLIST_SECONDS, label)
                 }
             }
 
@@ -204,7 +245,11 @@ object MonthReviewBuilder {
                 doneCount = entries.size,
                 tracks = entries.mapNotNull { it.track }.toSet(),
                 entries = entries,
-                trackShares = sharesOf(daySeconds[day].orEmpty(), dayCounts[day].orEmpty())
+                trackShares = sharesOf(
+                    daySeconds[day].orEmpty(),
+                    dayCounts[day].orEmpty(),
+                    dayTrack[day].orEmpty()
+                )
             )
         }
 
@@ -213,7 +258,7 @@ object MonthReviewBuilder {
             days = days,
             activeDays = days.count { it.doneCount > 0 },
             totalDone = days.sumOf { it.doneCount },
-            trackShares = sharesOf(monthSeconds, monthCounts)
+            trackShares = sharesOf(monthSeconds, monthCounts, monthTrack)
         )
     }
 }

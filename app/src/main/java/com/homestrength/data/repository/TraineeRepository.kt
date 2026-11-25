@@ -196,6 +196,7 @@ class TraineeRepository(
                     startedAt = completedAt,
                     durationSeconds = seconds,
                     noteTitle = cleanTitle,
+                    note = noteWithLight,
                     completed = true,
                     fansEarned = fans,
                     coinsEarned = coins
@@ -352,6 +353,9 @@ class TraineeRepository(
         } else {
             null
         }
+        val lightNote = item.note.trim().takeIf { TraineeRepository.lightLabelFromNote(it) != null }
+            ?: lightTrackCatalog?.findForTitle(item.title, track)?.label?.let { "|light=$it" }
+            ?: ""
         val practiceId = if (existing != null && !existing.completed) {
             traineeDao.updateLightPractice(
                 existing.copy(
@@ -359,7 +363,8 @@ class TraineeRepository(
                     completed = true,
                     fansEarned = fans,
                     coinsEarned = coins,
-                    noteTitle = item.title.trim().ifBlank { existing.noteTitle }
+                    noteTitle = item.title.trim().ifBlank { existing.noteTitle },
+                    note = lightNote.ifBlank { existing.note }
                 )
             )
             existing.id
@@ -370,6 +375,7 @@ class TraineeRepository(
                     startedAt = now,
                     durationSeconds = seconds,
                     noteTitle = item.title.trim(),
+                    note = lightNote,
                     completed = true,
                     fansEarned = fans,
                     coinsEarned = coins
@@ -385,7 +391,8 @@ class TraineeRepository(
                 practicedMinutes = minutes.coerceAtLeast(item.practicedMinutes),
                 linkedPracticeId = practiceId,
                 completedViaPractice = true,
-                completedAt = now
+                completedAt = now,
+                note = item.note.ifBlank { lightNote }
             )
         )
     }
@@ -743,7 +750,13 @@ class TraineeRepository(
             powerDone = powerDone,
             lightDone = lightDone,
             strengthDone = inMonth,
-            zone = zone
+            zone = zone,
+            displayLabel = { title, track, note ->
+                TraineeRepository.lightLabelFromNote(note)
+                    ?: lightTrackCatalog?.findForTitle(title, track)?.label
+                    ?: lightTrackCatalog?.findByLabel(title)?.label
+                    ?: TraineeRepository.trackLabel(track)
+            }
         )
     }
 

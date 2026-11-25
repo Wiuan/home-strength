@@ -54,12 +54,13 @@ object PeriodReviewBuilder {
         }
         val shares = months
             .flatMap { it.trackShares }
-            .groupBy { it.track }
-            .map { (track, list) ->
+            .groupBy { it.label }
+            .map { (label, list) ->
                 TrackShare(
-                    track = track,
+                    track = list.first().track,
                     seconds = list.sumOf { it.seconds },
-                    count = list.sumOf { it.count }
+                    count = list.sumOf { it.count },
+                    label = label
                 )
             }
             .sortedByDescending { it.seconds }
