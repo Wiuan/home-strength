@@ -50,12 +50,15 @@ class TraineeRepository(
     suspend fun addPowerItem(
         title: String,
         track: PracticeTrack?,
-        targetDurationSeconds: Int = 0
+        targetDurationSeconds: Int = 0,
+        /** Selected catalog label (e.g. 运动); kept even when backing track is 修养. */
+        lightTrackLabel: String? = null
     ): Boolean = addPowerItemForDay(
         dayKey = todayKey(),
         title = title,
         track = track,
-        targetDurationSeconds = targetDurationSeconds
+        targetDurationSeconds = targetDurationSeconds,
+        lightTrackLabel = lightTrackLabel
     )
 
     /**
@@ -67,19 +70,29 @@ class TraineeRepository(
         title: String,
         track: PracticeTrack?,
         targetDurationSeconds: Int = 0,
-        note: String = ""
+        note: String = "",
+        lightTrackLabel: String? = null
     ): Boolean {
         val day = dayKey.ifBlank { todayKey() }
         val current = traineeDao.getPowerList(day)
         if (current.size >= 5) return false
         val resolved = canonicalTrack(track ?: PracticeTrack.LIFE)
+        val label = lightTrackLabel?.trim().orEmpty()
+        val storedNote = when {
+            note.isNotBlank() && lightLabelFromNote(note) != null -> note
+            label.isNotBlank() && note.isNotBlank() -> "$note|light=$label"
+            label.isNotBlank() -> "|light=$label"
+            else -> note
+        }
         traineeDao.insertPowerItem(
             PowerListItemEntity(
                 dayKey = day,
-                title = title.trim().ifBlank { trackLabel(resolved) },
+                title = title.trim().ifBlank {
+                    label.ifBlank { trackLabel(resolved) }
+                },
                 track = resolved,
                 sortOrder = current.size,
-                note = note,
+                note = storedNote,
                 targetDurationSeconds = targetDurationSeconds.coerceAtLeast(0)
             )
         )
@@ -439,7 +452,8 @@ class TraineeRepository(
         durationSeconds: Int,
         note: String,
         noteTitle: String,
-        powerListItemId: Long = 0L
+        powerListItemId: Long = 0L,
+        lightTrackLabel: String? = null
     ): LightPracticeEntity? {
         val current = traineeDao.getLightPractice(id) ?: return null
         if (current.completed) return current
@@ -448,16 +462,38 @@ class TraineeRepository(
             else -> getPowerItemByLinkedPractice(id)?.title.orEmpty()
         }
         val titleForReward = noteTitle.trim().ifBlank { linkedTitle }
+        val rewardKey = lightTrackLabel?.trim()?.takeIf { it.isNotBlank() } ?: titleForReward
         val (fans, coins) = resolveTrackRewards(
-            title = titleForReward,
+            title = rewardKey,
             track = current.track,
             timed = true
         )
         val seconds = durationSeconds.coerceAtLeast(0)
         val minutes = secondsToPracticedMinutes(seconds)
+        val track = canonicalTrack(current.track)
+        val linkedId = if (powerListItemId > 0L) {
+            powerListItemId
+        } else {
+            getPowerItemByLinkedPractice(id)?.id ?: 0L
+        }
+        val linkedItem = when {
+            linkedId > 0L -> getPowerItem(linkedId)
+            else -> null
+        }
+        val lightName = lightTrackLabel?.trim()?.takeIf { it.isNotBlank() }
+            ?: TraineeRepository.lightLabelFromNote(linkedItem?.note.orEmpty())
+            ?: TraineeRepository.lightLabelFromNote(note)
+            ?: lightTrackCatalog?.findForTitle(titleForReward, track)?.label
+        val practiceNote = buildString {
+            append(note.trim())
+            if (lightName != null && lightLabelFromNote(note) == null) {
+                if (isNotEmpty()) append(" ")
+                append("|light=").append(lightName)
+            }
+        }
         val updated = current.copy(
             durationSeconds = seconds,
-            note = note.trim(),
+            note = practiceNote,
             noteTitle = noteTitle.trim(),
             completed = true,
             fansEarned = fans,
@@ -465,31 +501,27 @@ class TraineeRepository(
         )
         traineeDao.updateLightPractice(updated)
         award(fans, coins, energyDelta = -10)
-        val track = canonicalTrack(current.track)
-        val linkedId = if (powerListItemId > 0L) {
-            powerListItemId
-        } else {
-            getPowerItemByLinkedPractice(id)?.id ?: 0L
-        }
         if (linkedId > 0L) {
             markPowerItemDoneViaPractice(
                 itemId = linkedId,
                 practicedMinutes = minutes,
                 practiceId = id,
                 rewardFans = fans,
-                rewardCoins = coins
+                rewardCoins = coins,
+                lightTrackLabel = lightName
             )
         } else {
             // Store light rewards on the row so 去掉/取消勾选 can claw them back.
             addPowerItemIfRoom(
-                title = trackLabel(track),
+                title = titleForReward.ifBlank { lightName ?: trackLabel(track) },
                 track = track,
                 markDone = true,
                 rewardFans = fans,
                 rewardCoins = coins,
                 practicedMinutes = minutes,
                 linkedPracticeId = id,
-                completedViaPractice = true
+                completedViaPractice = true,
+                lightTrackLabel = lightName
             )
         }
         return updated
@@ -505,15 +537,26 @@ class TraineeRepository(
         practicedMinutes: Int,
         practiceId: Long,
         rewardFans: Int,
-        rewardCoins: Int
+        rewardCoins: Int,
+        lightTrackLabel: String? = null
     ) {
         val item = getPowerItem(itemId) ?: return
+        val label = lightTrackLabel?.trim().orEmpty()
+        val note = when {
+            lightLabelFromNote(item.note) != null -> item.note
+            label.isNotBlank() -> {
+                val base = item.note.trim()
+                if (base.isBlank()) "|light=$label" else "$base|light=$label"
+            }
+            else -> item.note
+        }
         // Light rewards already applied; keep amounts on the row for clawback on 去掉/取消勾选.
         traineeDao.updatePowerItem(
             item.copy(
                 status = PowerItemStatus.DONE,
                 rewardFans = rewardFans,
                 rewardCoins = rewardCoins,
+                note = note,
                 practicedMinutes = practicedMinutes.coerceAtLeast(item.practicedMinutes),
                 linkedPracticeId = practiceId,
                 completedViaPractice = true,
@@ -935,10 +978,13 @@ class TraineeRepository(
         rewardCoins: Int = 0,
         practicedMinutes: Int = 0,
         linkedPracticeId: Long = 0L,
-        completedViaPractice: Boolean = false
+        completedViaPractice: Boolean = false,
+        lightTrackLabel: String? = null
     ) {
         val day = todayKey()
         val current = traineeDao.getPowerList(day)
+        val label = lightTrackLabel?.trim().orEmpty()
+        val lightNote = if (label.isNotBlank()) "|light=$label" else ""
         val existing = current.firstOrNull { it.track == track && it.title == title }
         if (existing != null) {
             if (markDone && existing.status != PowerItemStatus.DONE) {
@@ -952,7 +998,8 @@ class TraineeRepository(
                         linkedPracticeId = linkedPracticeId.takeIf { it > 0L }
                             ?: existing.linkedPracticeId,
                         completedViaPractice = completedViaPractice,
-                        completedAt = System.currentTimeMillis()
+                        completedAt = System.currentTimeMillis(),
+                        note = existing.note.ifBlank { lightNote }
                     )
                 )
             }
@@ -966,6 +1013,7 @@ class TraineeRepository(
                 track = track,
                 status = if (markDone) PowerItemStatus.DONE else PowerItemStatus.PENDING,
                 sortOrder = current.size,
+                note = lightNote,
                 rewardFans = if (markDone) rewardFans else 0,
                 rewardCoins = if (markDone) rewardCoins else 0,
                 practicedMinutes = practicedMinutes,

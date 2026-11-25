@@ -24,19 +24,35 @@ sealed class Routes(val route: String) {
      * Light practice. [itemId]=0 means ad-hoc (no checklist row).
      * [targetSeconds]=0 means unlimited count-up.
      */
-    data object LightPractice : Routes("practice/{track}/{itemId}/{targetSeconds}/{titleHint}") {
-        fun create(track: String, itemId: Long = 0L, targetSeconds: Int = 0, titleHint: String = "") =
-            "practice/$track/$itemId/$targetSeconds/${encodeTitleHint(titleHint)}"
+    data object LightPractice : Routes(
+        "practice/{track}/{itemId}/{targetSeconds}/{titleHint}/{lightLabel}"
+    ) {
+        fun create(
+            track: String,
+            itemId: Long = 0L,
+            targetSeconds: Int = 0,
+            titleHint: String = "",
+            lightLabel: String = ""
+        ) =
+            "practice/$track/$itemId/$targetSeconds/" +
+                "${encode(titleHint)}/${encode(lightLabel)}"
 
-        private fun encodeTitleHint(raw: String): String =
+        private fun encode(raw: String): String =
             if (raw.isBlank()) {
                 "-"
             } else {
                 java.net.URLEncoder.encode(raw, Charsets.UTF_8.name())
             }
 
-        fun decodeTitleHint(encoded: String): String =
-            if (encoded == "-" || encoded.isBlank()) "" else java.net.URLDecoder.decode(encoded, Charsets.UTF_8.name())
+        fun decode(encoded: String): String =
+            if (encoded == "-" || encoded.isBlank()) {
+                ""
+            } else {
+                java.net.URLDecoder.decode(encoded, Charsets.UTF_8.name())
+            }
+
+        /** @deprecated use [decode] */
+        fun decodeTitleHint(encoded: String): String = decode(encoded)
     }
     data object Welfare : Routes("welfare")
     data object Profile : Routes("profile")

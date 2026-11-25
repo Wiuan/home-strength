@@ -65,6 +65,7 @@ fun LightPracticeScreen(
     powerListItemId: Long = 0L,
     targetSeconds: Int = 0,
     titleHint: String = "",
+    lightTrackLabel: String = "",
     onDone: (fans: Int, coins: Int) -> Unit,
     onBack: () -> Unit,
     onError: (String) -> Unit = {}
@@ -209,7 +210,8 @@ fun LightPracticeScreen(
                     durationSeconds = elapsed,
                     note = note,
                     noteTitle = noteTitle,
-                    powerListItemId = powerListItemId
+                    powerListItemId = powerListItemId,
+                    lightTrackLabel = lightTrackLabel
                 )
             }.onSuccess { result ->
                 saving = false
@@ -226,7 +228,8 @@ fun LightPracticeScreen(
         }
     }
 
-    val trackLabel = TraineeRepository.trackLabel(track)
+    val trackLabel = lightTrackLabel.trim()
+        .ifBlank { TraineeRepository.trackLabel(track) }
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = MaterialTheme.colorScheme.secondary,
         unfocusedBorderColor = MaterialTheme.colorScheme.outline

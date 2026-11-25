@@ -142,6 +142,8 @@ class RoomSyncRepository(
             val generic = TraineeRepository.trackLabel(track)
             val lightName = linked?.note?.let(TraineeRepository::lightLabelFromNote)
                 ?.takeIf { it.isNotBlank() }
+                ?: TraineeRepository.lightLabelFromNote(practice.note)
+                    ?.takeIf { it.isNotBlank() }
             out += RoomActivity(
                 id = "light-${practice.id}",
                 at = practice.startedAt,
@@ -155,7 +157,7 @@ class RoomSyncRepository(
                 track = track.name,
                 durationSec = practice.durationSeconds.coerceAtLeast(0),
                 preciseTime = true,
-                // Prefer Feishu「轻轨」label (e.g. 阅读) over backing chip「修养」.
+                // Prefer catalog/Feishu label (运动/阅读) over backing chip「修养」.
                 trackDisplay = lightName ?: if (title == generic) "" else generic
             )
         }

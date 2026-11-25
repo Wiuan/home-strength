@@ -70,7 +70,9 @@ data class LightPracticeNav(
     val track: PracticeTrack,
     val itemId: Long = 0L,
     val targetSeconds: Int = 0,
-    val titleHint: String = ""
+    val titleHint: String = "",
+    /** Catalog label like 运动 — kept even when [track] backing is 修养. */
+    val lightTrackLabel: String = ""
 )
 
 private val DurationPresetsMinutes = listOf(0, 10, 15, 25)
@@ -209,7 +211,10 @@ fun HomeScreen(
                                         track = TraineeRepository.canonicalTrack(track),
                                         itemId = item.id,
                                         targetSeconds = item.targetDurationSeconds,
-                                        titleHint = item.title
+                                        titleHint = item.title,
+                                        lightTrackLabel = TraineeRepository
+                                            .lightLabelFromNote(item.note)
+                                            .orEmpty()
                                     )
                                 )
                             }
@@ -346,7 +351,12 @@ fun HomeScreen(
                                         } else {
                                             minutes * 60
                                         }
-                                        viewModel.addPowerItem(title, draftTrack, seconds)
+                                        viewModel.addPowerItem(
+                                            title,
+                                            draftTrack,
+                                            seconds,
+                                            lightTrackLabel = selectedDef?.label
+                                        )
                                         draftItem = ""
                                         lastAutoTitle = ""
                                         customDurationText = ""
@@ -376,6 +386,8 @@ fun HomeScreen(
                                 LightPracticeNav(
                                     track = TraineeRepository.canonicalTrack(def.backing),
                                     titleHint = def.defaultTitle(def.defaultMinutes)
+                                        .ifBlank { def.label },
+                                    lightTrackLabel = def.label
                                 )
                             )
                         }
@@ -641,7 +653,8 @@ private fun PowerRow(
         else -> false
     }
     val meta = buildList {
-        item.track?.let { add(TraineeRepository.trackLabel(it)) }
+        val lightName = TraineeRepository.lightLabelFromNote(item.note)
+        add(lightName ?: item.track?.let(TraineeRepository::trackLabel).orEmpty())
         when {
             item.targetDurationSeconds > 0 -> add("${item.targetDurationSeconds / 60}分")
             item.track != null &&
@@ -651,7 +664,7 @@ private fun PowerRow(
                 item.track != PracticeTrack.MEDITATION -> add("不限时")
         }
         if (item.practicedMinutes > 0) add("已练${item.practicedMinutes}分")
-    }.joinToString(" · ")
+    }.filter { it.isNotBlank() }.joinToString(" · ")
 
     Row(
         modifier = Modifier

@@ -78,7 +78,8 @@ fun HomeStrengthNavHost(
                             track = nav.track.name,
                             itemId = nav.itemId,
                             targetSeconds = nav.targetSeconds,
-                            titleHint = nav.titleHint
+                            titleHint = nav.titleHint,
+                            lightLabel = nav.lightTrackLabel
                         )
                     )
                 },
@@ -137,14 +138,18 @@ fun HomeStrengthNavHost(
                 navArgument("track") { type = NavType.StringType },
                 navArgument("itemId") { type = NavType.LongType; defaultValue = 0L },
                 navArgument("targetSeconds") { type = NavType.IntType; defaultValue = 0 },
-                navArgument("titleHint") { type = NavType.StringType; defaultValue = "-" }
+                navArgument("titleHint") { type = NavType.StringType; defaultValue = "-" },
+                navArgument("lightLabel") { type = NavType.StringType; defaultValue = "-" }
             )
         ) { entry ->
             val trackName = entry.arguments?.getString("track") ?: return@composable
             val itemId = entry.arguments?.getLong("itemId") ?: 0L
             val targetSeconds = entry.arguments?.getInt("targetSeconds") ?: 0
-            val titleHint = Routes.LightPractice.decodeTitleHint(
+            val titleHint = Routes.LightPractice.decode(
                 entry.arguments?.getString("titleHint") ?: "-"
+            )
+            val lightLabel = Routes.LightPractice.decode(
+                entry.arguments?.getString("lightLabel") ?: "-"
             )
             val parsed = runCatching { PracticeTrack.valueOf(trackName) }.getOrNull()
             val track = when (parsed) {
@@ -166,6 +171,7 @@ fun HomeStrengthNavHost(
                 powerListItemId = itemId,
                 targetSeconds = targetSeconds,
                 titleHint = titleHint,
+                lightTrackLabel = lightLabel,
                 onDone = { _, _ ->
                     navController.popBackStack(Routes.Home.route, inclusive = false)
                 },
